@@ -658,21 +658,9 @@ def import_dataset_with_client(
         )
 
         if previous_dataset:
-            previous_dataset.update_metadata(dataset)
-            current_files = set(f.url for f in new_files)
-            # remove files not present in the dataset anymore
-            for f in previous_dataset.files:
-                if f.url in current_files:
-                    continue
-
-                previous_dataset.unlink_file(f.path)
-
-                if delete:
-                    client.remove_file(client.path / f.path)
-
-            dataset = previous_dataset
-            client.mutate_dataset(dataset)
-            dataset.to_yaml()
+            dataset = _update_previous_dataset(
+                client, dataset, previous_dataset, new_files, delete
+            )
 
         if dataset.version:
             tag_name = re.sub('[^a-zA-Z0-9.-_]', '_', dataset.version)
@@ -689,8 +677,35 @@ def import_dataset_with_client(
             short_name=short_name,
             sources=[f.path for f in files],
             with_metadata=dataset,
-            create=True
+            create=not previous_dataset
         )
+
+        if previous_dataset:
+            _update_previous_dataset(
+                client, dataset, previous_dataset, new_files, delete
+            )
+
+
+def _update_previous_dataset(
+    client, new_dataset, previous_dataset, new_files, delete=False
+):
+    """Update ``previous_dataset`` with changes made to ``new_dataset``."""
+    previous_dataset.update_metadata(new_dataset)
+    current_files = set(f.path for f in new_files)
+    # remove files not present in the dataset anymore
+    for f in previous_dataset.files:
+        if f.path in current_files:
+            continue
+
+        previous_dataset.unlink_file(f.path)
+
+        if delete:
+            client.remove_file(client.path / f.path)
+
+    new_dataset = previous_dataset
+    client.mutate_dataset(new_dataset)
+    new_dataset.to_yaml()
+    return new_dataset
 
 
 @pass_local_client(
