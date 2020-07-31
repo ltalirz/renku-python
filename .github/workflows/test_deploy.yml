@@ -32,6 +32,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        python -m pip install coveralls setuptools wheel
         python -m pip install .[all]
         git config --global --add user.name "Renku @ SDSC"
         git config --global --add user.email "renku@datascience.ch"
@@ -77,8 +78,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        python -m pip install coveralls setuptools wheel
         python -m pip install -e .[nodocs]
-        python -m pip install coveralls
         python setup.py --version
         git config --global --add user.name "Renku @ SDSC"
         git config --global --add user.email "renku@datascience.ch"
@@ -91,7 +92,79 @@ jobs:
       run: coveralls
       continue-on-error: true
 
-  test-macos:
+  test-linux-core:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 3
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install system packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libyaml-0-2 libyaml-dev
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install coveralls setuptools wheel
+          python -m pip install -e .[nodocs]
+          python setup.py --version
+          git config --global --add user.name "Renku @ SDSC"
+          git config --global --add user.email "renku@datascience.ch"
+      - name: Test with pytest
+        run: pytest -v -m "not integration and not publish" tests/core
+      - name: Coveralls
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          RENKU_REQUESTS_TIMEOUT_SECONDS: 120
+        run: coveralls
+        continue-on-error: true
+
+  test-linux-service:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 3
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install system packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libyaml-0-2 libyaml-dev
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install coveralls setuptools wheel
+          python -m pip install -e .[nodocs]
+          python setup.py --version
+          git config --global --add user.name "Renku @ SDSC"
+          git config --global --add user.email "renku@datascience.ch"
+      - name: Test with pytest
+        run: pytest -v -m "not integration and not publish" tests/service
+      - name: Coveralls
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+          RENKU_REQUESTS_TIMEOUT_SECONDS: 120
+        run: coveralls
+        continue-on-error: true
+
+  test-macos-cli:
     runs-on: macos-latest
     strategy:
       max-parallel: 4
@@ -111,14 +184,72 @@ jobs:
         brew update
         brew install git-lfs shellcheck node || brew link --overwrite node
         python -m pip install --upgrade pip
-        python -m pip install --upgrade wheel
+        python -m pip install setuptools wheel
         python -m pip install -e .[all]
         git config --global --add user.name "Renku @ SDSC"
         git config --global --add user.email "renku@datascience.ch"
     - name: Test with pytest
       env:
         RENKU_REQUESTS_TIMEOUT_SECONDS: 120
-      run: ./run-tests.sh
+      run: pytest -v -m "not integration and not publish" tests/cli
+
+  test-macos-core:
+    runs-on: macos-latest
+    strategy:
+      max-parallel: 3
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install git-lfs shellcheck node || brew link --overwrite node
+          python -m pip install --upgrade pip
+          python -m pip install setuptools wheel
+          python -m pip install -e .[all]
+          git config --global --add user.name "Renku @ SDSC"
+          git config --global --add user.email "renku@datascience.ch"
+      - name: Test with pytest
+        env:
+          RENKU_REQUESTS_TIMEOUT_SECONDS: 120
+        run: pytest -v -m "not integration and not publish" tests/core
+
+  test-macos-service:
+    runs-on: macos-latest
+    strategy:
+      max-parallel: 3
+      matrix:
+        python-version: [3.6, 3.7, 3.8]
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v1
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install git-lfs shellcheck node || brew link --overwrite node
+          python -m pip install --upgrade pip
+          python -m pip install setuptools wheel
+          python -m pip install -e .[all]
+          git config --global --add user.name "Renku @ SDSC"
+          git config --global --add user.email "renku@datascience.ch"
+      - name: Test with pytest
+        env:
+          RENKU_REQUESTS_TIMEOUT_SECONDS: 120
+        run: pytest -v -m "not integration and not publish" tests/service
 
   test-linux-integration:
     runs-on: ubuntu-latest
@@ -140,6 +271,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        python -m pip install coveralls setuptools wheel
         python -m pip install -e .[nodocs]
         git config --global --add user.name "Renku @ SDSC"
         git config --global --add user.email "renku@datascience.ch"
@@ -173,7 +305,7 @@ jobs:
         brew update
         brew install git-lfs shellcheck node || brew link --overwrite node
         python -m pip install --upgrade pip
-        python -m pip install --upgrade wheel
+        python -m pip install setuptools wheel
         python -m pip install -e .[all]
         git config --global --add user.name "Renku @ SDSC"
         git config --global --add user.email "renku@datascience.ch"
