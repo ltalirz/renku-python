@@ -49,10 +49,10 @@ from renku.service.views.templates import TEMPLATES_BLUEPRINT_TAG, \
 
 logging.basicConfig(level=os.getenv('SERVICE_LOG_LEVEL', 'WARNING'))
 
-if os.getenv("SENTRY_DSN"):
+if os.getenv('SENTRY_DSN'):
     sentry_sdk.init(
-        dsn=os.getenv("SENTRY_DSN"),
-        environment=os.getenv("SENTRY_ENV"),
+        dsn=os.getenv('SENTRY_DSN'),
+        environment=os.getenv('SENTRY_ENV'),
         integrations=[FlaskIntegration(), RqIntegration(), RedisIntegration()],
     )
 

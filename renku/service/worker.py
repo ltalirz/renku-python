@@ -22,7 +22,6 @@ from contextlib import contextmanager
 import sentry_sdk
 from rq import Worker
 from rq.logutils import setup_loghandlers
-
 from sentry_sdk.integrations.rq import RqIntegration
 
 from renku.core.errors import ConfigurationError, UsageError
@@ -31,14 +30,13 @@ from renku.service.logger import worker_log as log
 
 RQ_WORKER_LOG_LEVEL = os.getenv('RQ_WORKER_LOG_LEVEL', 'INFO')
 
-if os.getenv("SENTRY_DSN"):
-    sentry_sdk.init(os.getenv("SENTRY_DSN"), integrations=[RqIntegration()])
+if os.getenv('SENTRY_DSN'):
+    sentry_sdk.init(os.getenv('SENTRY_DSN'), integrations=[RqIntegration()])
 
 
 @contextmanager
 def worker(queue_list):
     """Creates worker object."""
-
     def build_worker():
         """Build worker."""
         # NOTE: logging configuration has been moved to `.work(logging_level=)`
