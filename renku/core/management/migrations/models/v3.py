@@ -279,7 +279,7 @@ class DatasetSchemaV3(CreatorMixinSchemaV3, EntitySchemaV3):
     license = fields.Uri(schema.license, missing=None, allow_none=True)
     name = fields.String(schema.alternateName, missing=None)
     same_as = fields.Nested(schema.sameAs, UrlSchemaV5, missing=None)
-    tags = fields.Nested(schema.subjectOf, DatasetTagSchemaV5, many=True)
+    tags = fields.Nested(schema.subjectOf, DatasetTagSchemaV5, many=True, missing=[])
     title = fields.String(schema.name)
     url = fields.String(schema.url)
     version = fields.String(schema.version, missing=None)

@@ -19,7 +19,6 @@
 
 import os
 import urllib
-import uuid
 import weakref
 from collections import OrderedDict
 from pathlib import Path, posixpath
@@ -146,8 +145,8 @@ class Activity(CommitMixin, ReferenceMixin):
             does_not_exists = not path_.exists()
 
             if all([is_dataset, not_refs, does_not_exists]):
-                uid = uuid.UUID(path_.parent.name)
-                path_ = Path(self.client.renku_home) / self.client.DATASETS / str(uid) / self.client.METADATA
+                identifier = path_.parent.name
+                path_ = Path(self.client.renku_home) / self.client.DATASETS / identifier / self.client.METADATA
 
             index.add(str(path_))
 
@@ -241,8 +240,8 @@ class Activity(CommitMixin, ReferenceMixin):
             does_not_exists = not (path_.exists() or (path_.is_symlink() and os.path.lexists(path_)))
 
             if all([is_dataset, not_refs, does_not_exists]):
-                uid = uuid.UUID(path_.parent.name)
-                path_ = Path(self.client.renku_home) / self.client.DATASETS / str(uid) / self.client.METADATA
+                identifier = path_.parent.name
+                path_ = Path(self.client.renku_home) / self.client.DATASETS / identifier / self.client.METADATA
 
             index.add(str(path_))
 

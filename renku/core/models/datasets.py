@@ -31,7 +31,7 @@ from marshmallow import EXCLUDE, pre_dump
 
 from renku.core import errors
 from renku.core.models import jsonld as jsonld
-from renku.core.models.calamus import JsonLDSchema, Nested, fields, rdfs, renku, schema
+from renku.core.models.calamus import JsonLDSchema, Nested, fields, prov, rdfs, renku, schema
 from renku.core.models.entities import Entity, EntitySchema
 from renku.core.models.locals import ReferenceMixin
 from renku.core.models.provenance.agents import Person, PersonSchema
@@ -96,6 +96,8 @@ class Url:
         """Post-initialize attributes."""
         if not self.url:
             self.url = self.default_url()
+        elif "_id" in self.url:
+            self.url["@id"] = self.url.pop("_id")
 
         if not self._id:
             self._id = self.default_id()
@@ -402,6 +404,14 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
 
     name = attr.ib(default=None, kw_only=True)
 
+    derived_from = attr.ib(default=None, kw_only=True)
+
+    immutable = attr.ib(default=False, kw_only=True)
+
+    _modified = attr.ib(default=False, init=False)
+
+    _mutated = attr.ib(default=False, init=False)
+
     @date_created.default
     def _now(self):
         """Define default value for datetime fields."""
@@ -410,23 +420,16 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
     @name.validator
     def name_validator(self, attribute, value):
         """Validate name."""
-        # name might have been scaped and have '%' in it
+        # name might have been escaped and have '%' in it
         if value and not is_dataset_name_valid(value):
             raise errors.ParameterError('Invalid "name": {}'.format(value))
-
-    @property
-    def uid(self):
-        """UUID part of identifier."""
-        if is_doi(self.identifier):
-            return self.identifier
-        return self.identifier.split("/")[-1]
 
     @property
     def short_id(self):
         """Shorter version of identifier."""
         if is_doi(self.identifier):
             return self.identifier
-        return str(self.uid)[:8]
+        return str(self.identifier)[:8]
 
     @property
     def creators_csv(self):
@@ -478,7 +481,16 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
                 file_.client = self.client
                 return file_
 
-    def update_metadata(self, other_dataset):
+    def update_metadata(self, **kwargs):
+        """Updates instance attributes."""
+        for attribute, value in kwargs.items():
+            if value and value != getattr(self, attribute):
+                self._modified = True
+                setattr(self, attribute, value)
+
+        return self
+
+    def update_metadata_from(self, other_dataset):
         """Updates instance attributes with other dataset attributes.
 
         :param other_dataset: `Dataset`
@@ -487,6 +499,7 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
         for field_ in self.EDITABLE_FIELDS:
             val = getattr(other_dataset, field_)
             if val:
+                self._modified = True
                 setattr(self, field_, val)
 
         return self
@@ -498,8 +511,10 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
         for new_file in files:
             existing_file = self.find_file(new_file.path)
             if existing_file is None:
+                self._modified = True
                 to_insert.append(new_file)
             else:
+                self._modified = existing_file.commit != new_file.commit
                 existing_file.commit = new_file.commit
                 existing_file._label = new_file._label
                 existing_file.based_on = new_file.based_on
@@ -511,6 +526,7 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
         files = []
 
         for file_ in self.files:
+            self._modified = True
             new_path = rename(file_.path)
             new_file = attr.evolve(file_, path=new_path)
             if not self.find_file(new_file.path):
@@ -531,16 +547,67 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
 
         :param file_path: Relative path used as key inside files container.
         """
+        self._modified = True
         index = self.find_file(file_path, return_index=True)
         return self.files.pop(index)
+
+    def mutate(self):
+        """Update mutation history and assign a new identifier.
+
+        Do not mutate more than once before committing the metadata or otherwise there would be missing links in the
+        chain of changes.
+        """
+        if self.immutable:
+            raise errors.OperationError(f"Cannot mutate an immutable dataset: {self.name}")
+
+        # As a safetynet, we only allow one mutation during lifetime of a dataset object; this is not 100% error-proof
+        # because one can create a new object from a mutated but uncommitted metadata file.
+        if self._mutated:
+            return
+        self._mutated = True
+
+        self.same_as = None
+        self.derived_from = Url(url_id=self._id)
+
+        self.date_created = self._now()
+        self.date_published = None
+
+        self._replace_identifier(new_identifier=str(uuid.uuid4()))
+
+    def _replace_identifier(self, new_identifier):
+        """Replace identifier and update all related fields."""
+        self.identifier = new_identifier
+        self._set_id()
+        self.url = self._id
+        self._label = self.identifier
+
+    def _get_host(self):
+        # Determine the hostname for the resource URIs.
+        # If RENKU_DOMAIN is set, it overrides the host from remote.
+        # Default is localhost.
+        host = "localhost"
+        if self.client:
+            host = self.client.remote.get("host") or host
+        return os.environ.get("RENKU_DOMAIN") or host
+
+    def _set_id(self):
+        self._id = generate_dataset_id(client=self.client, identifier=self.identifier)
 
     def __attrs_post_init__(self):
         """Post-Init hook."""
         super().__attrs_post_init__()
 
-        self._id = generate_dataset_id(client=self.client, identifier=self.identifier)
-        self._label = self.identifier
+        self._set_id()
         self.url = self._id
+        self._label = self.identifier
+
+        if self.derived_from:
+            host = self._get_host()
+            derived_from_id = self.derived_from._id
+            derived_from_url = self.derived_from.url.get("@id")
+            u = urlparse(derived_from_url)
+            derived_from_url = u._replace(netloc=host).geturl()
+            self.derived_from = Url(id=derived_from_id, url_id=derived_from_url)
 
         # if `date_published` is set, we are probably dealing with
         # an imported dataset so `date_created` is not needed
@@ -548,7 +615,8 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
             self.date_created = None
 
         if not self.path and self.client:
-            self.path = str(self.client.renku_datasets_path / self.uid)
+            absolute_path = LinkReference(client=self.client, name=f"datasets/{self.name}").reference.parent
+            self.path = str(absolute_path.relative_to(self.client.path))
 
         if self.files and self.client is not None:
             for dataset_file in self.files:
@@ -595,6 +663,9 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
 
     def to_yaml(self):
         """Write an instance to the referenced YAML file."""
+        if self._modified and not self.immutable:
+            self.mutate()
+
         data = DatasetSchema(flattened=True).dump(self)
         jsonld.write_yaml(path=self.__reference__, data=data)
 
@@ -728,6 +799,7 @@ class DatasetSchema(EntitySchema, CreatorMixinSchema):
     tags = Nested(schema.subjectOf, DatasetTagSchema, many=True)
     same_as = Nested(schema.sameAs, UrlSchema, missing=None)
     name = fields.String(schema.alternateName)
+    derived_from = Nested(prov.wasDerivedFrom, UrlSchema, missing=None)
 
     @pre_dump
     def fix_datetimes(self, obj, many=False, **kwargs):

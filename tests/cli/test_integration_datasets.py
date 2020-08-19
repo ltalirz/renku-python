@@ -32,6 +32,7 @@ from renku.core import errors
 from renku.core.commands.clone import project_clone
 from renku.core.management.repository import DEFAULT_DATA_DIR as DATA_DIR
 from renku.core.utils.contexts import chdir
+from tests.utils import assert_dataset_is_mutated
 
 
 @pytest.mark.integration
@@ -453,21 +454,21 @@ def test_dataset_export_upload_tag(
     result = runner.invoke(cli, ["dataset", "tag", "my-dataset", "2.0"])
     assert 0 == result.exit_code, result.output + str(result.stderr_bytes)
 
-    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider] + params, input="3")
+    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider, "-t", "2.0"] + params)
 
     assert 0 == result.exit_code
     assert "Exported to:" in result.output
     assert output in result.output
-    assert "2/2" in result.output
+    assert "2/2" in result.output, result.output
 
-    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider] + params, input="2")
+    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider, "-t", "1.0"] + params)
 
     assert 0 == result.exit_code, result.output + str(result.stderr_bytes)
     assert "Exported to:" in result.output
     assert output in result.output
     assert "1/1" in result.output
 
-    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider] + params, input="1")
+    result = runner.invoke(cli, ["dataset", "export", "my-dataset", provider] + params, input="1")  # HEAD
 
     assert 0 == result.exit_code, result.output + str(result.stderr_bytes)
     assert "Exported to:" in result.output
@@ -1331,3 +1332,28 @@ def test_dataset_add_dropbox(runner, client, project, url, size):
 
     datafile = Path(project) / "data/my-dropbox-data" / filename
     assert size == len(datafile.read_text())
+
+
+@pytest.mark.integration
+@flaky(max_runs=10, min_passes=1)
+def test_immutability_at_import(runner, client):
+    """Test first dataset's ID after import is the same as metadata directory."""
+    assert 0 == runner.invoke(cli, ["dataset", "import", "-y", "--name", "my-dataset", "10.7910/DVN/F4NUMR"]).exit_code
+
+    dataset = client.load_dataset("my-dataset")
+    assert str(dataset.path).endswith(dataset.identifier)
+
+
+@pytest.mark.integration
+@flaky(max_runs=10, min_passes=1)
+def test_immutability_after_import(runner, client):
+    """Test first dataset's ID after import is the same as metadata directory."""
+    assert 0 == runner.invoke(cli, ["dataset", "import", "-y", "--name", "my-dataset", "10.7910/DVN/F4NUMR"]).exit_code
+
+    old_dataset = client.load_dataset("my-dataset")
+
+    # Make some modification in dataset
+    assert 0 == runner.invoke(cli, ["dataset", "edit", "my-dataset", "-k", "new-data"]).exit_code
+
+    dataset = client.load_dataset("my-dataset")
+    assert_dataset_is_mutated(old=old_dataset, new=dataset)

@@ -93,7 +93,9 @@ class RenkuProvider(ProviderApi):
         remote_client = LocalClient(repo_path)
         self._migrate_project(remote_client)
 
-        datasets = [d for d in remote_client.datasets.values() if urllib.parse.quote(d.uid, safe="") == dataset_id]
+        datasets = [
+            d for d in remote_client.datasets.values() if urllib.parse.quote(d.identifier, safe="") == dataset_id
+        ]
 
         if len(datasets) == 0:
             raise errors.ParameterError(
