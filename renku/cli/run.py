@@ -335,7 +335,7 @@ def run(
             if return_code not in (success_codes or {0}):
                 raise errors.InvalidSuccessCode(return_code, success_codes=success_codes)
 
-        client.process_and_store_run(command_line_tool=tool, name=name)
+        client.process_and_store_run(command_line_tool=tool, name=name, client=client)
 
         if factory.messages:
             click.echo(factory.messages)

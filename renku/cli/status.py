@@ -39,19 +39,25 @@ import click
 from renku.core.commands.ascii import _format_sha1
 from renku.core.commands.client import pass_local_client
 from renku.core.commands.graph import Graph
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph, LATEST_GENERATIONS
 
 
 @click.command()
+@click.option("--new", is_flag=True, help="Use new graph model.")
 @click.option("--revision", default="HEAD", help="Display status as it was in the given revision")
 @click.option("--no-output", is_flag=True, default=False, help="Display commands without output files.")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False), nargs=-1)
 @pass_local_client(clean=True, requires_migration=True, commit=False)
 @click.pass_context
-def status(ctx, client, revision, no_output, path):
+def status(ctx, client, revision, no_output, path, new):
     """Show a status of the repository."""
-    graph = Graph(client)
-    # TODO filter only paths = {graph.normalize_path(p) for p in path}
-    status = graph.build_status(revision=revision, can_be_cwl=no_output)
+    if not new:
+        graph = Graph(client)
+        # TODO filter only paths = {graph.normalize_path(p) for p in path}
+        status = graph.build_status(revision=revision, can_be_cwl=no_output)
+    else:
+        status = _build_new_status(client)
+        return
 
     if client.has_external_files():
         click.echo(
@@ -125,3 +131,16 @@ def status(ctx, client, revision, no_output, path):
         click.echo()
 
     ctx.exit(1 if status["outdated"] else 0)
+
+
+def _build_new_status(client):
+    provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
+    print("LOADED", len(provenance_graph._nodes))
+    graph = provenance_graph.to_conjunctive_graph()
+    print("GRAPH GENERATED")
+    result = graph.query(LATEST_GENERATIONS)
+    print("GRAPH QUERIED")
+
+    print(list(result))
+
+

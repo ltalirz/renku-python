@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 #
 # Copyright 2017-2020 - Swiss Data Science Center (SDSC)
@@ -37,7 +38,7 @@ import pkg_resources
 from renku.core.errors import MigrationRequired, ProjectNotSupported
 from renku.core.utils.migrate import read_project_version
 
-SUPPORTED_PROJECT_VERSION = 7
+SUPPORTED_PROJECT_VERSION = 8
 
 
 def check_for_migration(client):

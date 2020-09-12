@@ -22,8 +22,8 @@ import attr
 from marshmallow import EXCLUDE
 
 from renku.core.models import jsonld
-from renku.core.models.calamus import JsonLDSchema, Nested, renku, schema
-from renku.core.models.workflow.plan import PlanSchema, Plan
+from renku.core.models.calamus import JsonLDSchema, Nested, schema
+from renku.core.models.workflow.plan import Plan, PlanSchema
 
 
 @attr.s(eq=False, order=False)
@@ -32,6 +32,7 @@ class DependencyGraph:
 
     # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
 
+    __reference__ = attr.ib(default=None, init=False, type=str)
     _nodes = attr.ib(factory=list, kw_only=True)
 
     def __attrs_post_init__(self):
@@ -64,9 +65,10 @@ class DependencyGraph:
 
         return self
 
-    def add_node(self, node: Plan):
+    def add(self, node: Plan):
         """Add a node to the graph."""
         # TODO: Check if a node with the same _id exists and do not add this one
+        # TODO: Check if name is unique
         self._nodes.append(node)
 
     def as_jsonld(self):

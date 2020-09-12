@@ -35,11 +35,13 @@ from renku.core.compat import Path
 from renku.core.management.config import RENKU_HOME
 from renku.core.models.locals import with_reference
 from renku.core.models.projects import Project
+from renku.core.models.provenance.activity import Activity
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.refs import LinkReference
+from renku.core.models.workflow.dependency_graph import DependencyGraph
+from renku.core.models.workflow.plan import Plan
 
 from .git import GitCore
-from ..models.workflow.dependency_graph import DependencyGraph
-from ..models.workflow.plan import Plan
 
 DEFAULT_DATA_DIR = "data"
 
@@ -104,7 +106,7 @@ class RepositoryApiMixin(GitCore):
     DEPENDENCY_GRAPH = "graph.yml"
     """File for storing dependency graph."""
 
-    PROVENANCE = "provenance"
+    PROVENANCE_GRAPH = "provenance.yml"
     """Directory for storing activities in Renku."""
 
     ACTIVITY_INDEX = "activity_index.yaml"
@@ -179,9 +181,9 @@ class RepositoryApiMixin(GitCore):
         return self.renku_path / self.ACTIVITY_INDEX
 
     @property
-    def provenance_path(self):
+    def provenance_graph_path(self):
         """Path to store activity files."""
-        return self.renku_path / self.PROVENANCE
+        return self.renku_path / self.PROVENANCE_GRAPH
 
     @property
     def dependency_graph_path(self):
@@ -436,7 +438,7 @@ class RepositoryApiMixin(GitCore):
                 run.to_yaml()
                 self.add_to_activity_index(run)
 
-    def process_and_store_run(self, command_line_tool, name):
+    def process_and_store_run(self, command_line_tool, name, client):
         """Create Plan and Activity from CommandLineTool and store them."""
         filename = "{0}_{1}.yaml".format(uuid.uuid4().hex, secure_filename("_".join(command_line_tool.baseCommand)))
 
@@ -452,16 +454,14 @@ class RepositoryApiMixin(GitCore):
         # Add Plan to dependency graph
         plan = Plan.from_run(run=process_run.association.plan, name=name)
         dependency_graph = DependencyGraph.from_yaml(self.dependency_graph_path)
-        dependency_graph.add_node(plan)
+        dependency_graph.add(plan)
         dependency_graph.to_yaml()
 
-        # # Store Activity
-        # self.provenance_path.mkdir(exist_ok=True)
-        # path = self.provenance_path / filename
-        #
-        # with with_reference(path):
-        #     run = command_line_tool.run.generate_process_run(client=self, commit=self.repo.head.commit, path=path)
-        #     run.to_yaml()
+        # Store Activity
+        activity = Activity.from_process_run(process_run=process_run, path=path, plan=plan, client=client)
+        provenance_graph = ProvenanceGraph.from_yaml(self.provenance_graph_path)
+        provenance_graph.add(activity)
+        provenance_graph.to_yaml()
 
     def init_repository(self, force=False, user=None):
         """Initialize an empty Renku repository."""
