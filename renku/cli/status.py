@@ -39,7 +39,7 @@ import click
 from renku.core.commands.ascii import _format_sha1
 from renku.core.commands.client import pass_local_client
 from renku.core.commands.graph import Graph
-from renku.core.models.provenance.provenance_graph import ProvenanceGraph, LATEST_GENERATIONS
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph, LATEST_GENERATIONS, ALL_USAGES
 
 
 @click.command()
@@ -134,13 +134,30 @@ def status(ctx, client, revision, no_output, path, new):
 
 
 def _build_new_status(client):
+    from datetime import datetime
+
+    start = datetime.now()
     provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
     print("LOADED", len(provenance_graph._nodes))
+    print((datetime.now() - start).total_seconds())
     graph = provenance_graph.to_conjunctive_graph()
+    graph
     print("GRAPH GENERATED")
-    result = graph.query(LATEST_GENERATIONS)
+    print((datetime.now() - start).total_seconds())
+    result = graph.query(ALL_USAGES)
     print("GRAPH QUERIED")
+    print((datetime.now() - start).total_seconds())
 
-    print(list(result))
+    latest = {}
+
+    for path, checksum, order in result:
+        max_order, _ = latest.get(path, (-1, -1))
+        if int(order) > max_order:
+            latest[path] = (int(order), checksum)
+
+    for path in latest:
+        order, checksum = latest.get(path, (-1, -1))
+        print(path, checksum, order)
+    print((datetime.now() - start).total_seconds())
 
 

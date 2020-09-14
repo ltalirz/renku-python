@@ -100,6 +100,7 @@ class ProvenanceGraph:
         register("json-ld", Parser, "rdflib_jsonld.parser", "JsonLDParser")
 
         graph = ConjunctiveGraph().parse(data=data, format="json-ld")
+
         graph.bind("prov", "http://www.w3.org/ns/prov#")
         graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
         graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
@@ -124,6 +125,19 @@ class ProvenanceGraphSchema(JsonLDSchema):
         unknown = EXCLUDE
 
     _nodes = Nested(schema.hasPart, ActivitySchema, init_name="nodes", many=True, missing=None)
+
+
+ALL_USAGES = """
+    SELECT ?path ?checksum ?order
+    WHERE 
+    {
+        ?activity a prov:Activity .
+        ?activity renku:order ?order .
+        ?activity (prov:qualifiedUsage/prov:entity) ?entity .
+        ?entity renku:checksum ?checksum .
+        ?entity prov:atLocation ?path .
+    }
+    """
 
 
 LATEST_GENERATIONS = """
