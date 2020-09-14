@@ -17,29 +17,16 @@
 # limitations under the License.
 """Initial migrations."""
 
-import glob
-import os
-import uuid
-from functools import cmp_to_key
 from pathlib import Path
 
-from cwlgen import CommandLineTool, parse_cwl
-from cwlgen.requirements import InitialWorkDirRequirement
-from git import NULL_TREE, Actor
-from werkzeug.utils import secure_filename
+from git import NULL_TREE
 
-from renku.core.management.migrations.models.v3 import Dataset
-from renku.core.models.entities import Collection, Entity
-from renku.core.models.locals import with_reference
-from renku.core.models.provenance.activities import Activity as OldActivity, ProcessRun, WorkflowRun
+from renku.core.models.provenance import activities
+from renku.core.models.provenance.activities import WorkflowRun
 from renku.core.models.provenance.activity import Activity
-from renku.core.models.provenance.agents import Person, SoftwareAgent
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.workflow.dependency_graph import DependencyGraph
-from renku.core.models.workflow.parameters import CommandArgument, CommandInput, CommandOutput, MappedIOStream
 from renku.core.models.workflow.plan import Plan
-from renku.core.models.workflow.run import Run
-from renku.version import __version__, version_url
 
 
 def migrate(client):
@@ -58,7 +45,7 @@ def _migrate_old_workflows(client):
     provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
 
     for commit in commits:
-        print(f"\rProcessing commits ({n}/{n_commits})", end='')
+        print(f"\rProcessing commits ({n}/{n_commits})", end="")
 
         _process_commit(commit, client=client, dependency_graph=dependency_graph, provenance_graph=provenance_graph)
 
@@ -79,7 +66,7 @@ def _process_commit(commit, client, dependency_graph, provenance_graph):
         if not path.startswith(".renku/workflow") or not path.endswith(".yaml"):
             continue
 
-        workflow = OldActivity.from_yaml(path=path, client=client)
+        workflow = activities.Activity.from_yaml(path=path, client=client)
 
         subprocesses = list(workflow.subprocesses.items()) if isinstance(workflow, WorkflowRun) else [(0, workflow)]
         subprocesses.sort()
@@ -91,6 +78,7 @@ def _process_commit(commit, client, dependency_graph, provenance_graph):
                 run = run.subprocesses[0]
 
             plan = Plan.from_run(run=run, name=None)
+            plan = dependency_graph.find_similar_plan(plan) or plan
             dependency_graph.add(plan)
 
             process_run = run.activity

@@ -129,7 +129,7 @@ class ProvenanceGraphSchema(JsonLDSchema):
 
 ALL_USAGES = """
     SELECT ?path ?checksum ?order
-    WHERE 
+    WHERE
     {
         ?activity a prov:Activity .
         ?activity renku:order ?order .
@@ -140,18 +140,18 @@ ALL_USAGES = """
     """
 
 
-LATEST_GENERATIONS = """
+LATEST_USAGES = """
     SELECT ?path ?checksum ?order ?maxOrder
-    WHERE 
+    WHERE
     {
         {
             SELECT ?path ?checksum ?order
             WHERE
             {
-                ?output a prov:Entity .
-                ?output renku:checksum ?checksum .
-                ?output prov:atLocation ?path .
-                ?output (prov:qualifiedGeneration/prov:activity) ?activity .
+                ?activity a prov:Activity .
+                ?entity renku:checksum ?checksum .
+                ?entity prov:atLocation ?path .
+                ?entity (prov:qualifiedGeneration/prov:activity) ?activity .
                 ?activity renku:order ?order
             }
         }
@@ -163,9 +163,45 @@ LATEST_GENERATIONS = """
                 SELECT ?path ?order_
                 WHERE
                 {
-                    ?output a prov:Entity .
-                    ?output prov:atLocation ?path .
-                    ?output (prov:qualifiedGeneration/prov:activity) ?activity .
+                    ?activity a prov:Activity .
+                    ?entity prov:atLocation ?path .
+                    ?entity (prov:qualifiedGeneration/prov:activity) ?activity .
+                    ?activity renku:order ?order_
+                }
+            }
+            GROUP BY ?path
+        }
+        FILTER(?order = ?maxOrder)
+    }
+    """
+
+
+LATEST_GENERATIONS = """
+    SELECT ?path ?checksum ?order ?maxOrder
+    WHERE
+    {
+        {
+            SELECT ?path ?checksum ?order
+            WHERE
+            {
+                ?entity a prov:Entity .
+                ?entity renku:checksum ?checksum .
+                ?entity prov:atLocation ?path .
+                ?entity (prov:qualifiedGeneration/prov:activity) ?activity .
+                ?activity renku:order ?order
+            }
+        }
+        .
+        {
+            SELECT ?path (MAX(?order_) AS ?maxOrder)
+            WHERE
+            {
+                SELECT ?path ?order_
+                WHERE
+                {
+                    ?entity a prov:Entity .
+                    ?entity prov:atLocation ?path .
+                    ?entity (prov:qualifiedGeneration/prov:activity) ?activity .
                     ?activity renku:order ?order_
                 }
             }

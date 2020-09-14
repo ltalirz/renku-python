@@ -33,13 +33,14 @@ of the corresponding commit identifier after the ``#`` (hash). If the file was
 imported from another repository, the short name of is shown together with the
 filename before ``@``.
 """
+from contextlib import contextmanager
 
 import click
 
 from renku.core.commands.ascii import _format_sha1
 from renku.core.commands.client import pass_local_client
 from renku.core.commands.graph import Graph
-from renku.core.models.provenance.provenance_graph import ProvenanceGraph, LATEST_GENERATIONS, ALL_USAGES
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph, ALL_USAGES
 
 
 @click.command()
@@ -134,30 +135,49 @@ def status(ctx, client, revision, no_output, path, new):
 
 
 def _build_new_status(client):
-    from datetime import datetime
+    with measure("LOADED"):
+        provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
 
-    start = datetime.now()
-    provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
-    print("LOADED", len(provenance_graph._nodes))
-    print((datetime.now() - start).total_seconds())
-    graph = provenance_graph.to_conjunctive_graph()
-    graph
-    print("GRAPH GENERATED")
-    print((datetime.now() - start).total_seconds())
-    result = graph.query(ALL_USAGES)
-    print("GRAPH QUERIED")
-    print((datetime.now() - start).total_seconds())
+    use_sparql = False
 
-    latest = {}
+    if use_sparql:
+        with measure("GRAPH GENERATED"):
+            graph = provenance_graph.to_conjunctive_graph()
 
-    for path, checksum, order in result:
-        max_order, _ = latest.get(path, (-1, -1))
-        if int(order) > max_order:
-            latest[path] = (int(order), checksum)
+        with measure("GRAPH QUERIED"):
+            result = graph.query(ALL_USAGES)
 
-    for path in latest:
-        order, checksum = latest.get(path, (-1, -1))
-        print(path, checksum, order)
-    print((datetime.now() - start).total_seconds())
+            latest = {}
+
+            for path, checksum, order in result:
+                max_order, _ = latest.get(path, (-1, -1))
+                if int(order) > max_order:
+                    latest[path] = (int(order), checksum)
+    else:
+        with measure("CALCULATE RESULTS"):
+            latest = {}
+
+            for activity in provenance_graph.activities.values():
+                for e in activity.qualified_usage:
+                    max_order, _ = latest.get(e.path, (-1, -1))
+                    if int(activity.order) > max_order:
+                        latest[e.path] = (activity.order, e.checksum)
+
+    # for path in latest:
+    #     order, checksum = latest.get(path, (-1, -1))
+    #     print(path, checksum, order)
+
+    print(len(latest))
 
 
+@contextmanager
+def measure(message="TOTAL"):
+    import time
+
+    start = time.time()
+    try:
+        yield
+    finally:
+        end = time.time()
+        total_seconds = float("%.2f" % (end - start))
+        print(f"{message}: {total_seconds} seconds")

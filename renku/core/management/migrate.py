@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 #
 # Copyright 2017-2020 - Swiss Data Science Center (SDSC)

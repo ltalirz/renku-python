@@ -51,6 +51,25 @@ class Plan:
     outputs = attr.ib(factory=list, kw_only=True)
     success_codes = attr.ib(kw_only=True, factory=list, type=list)
 
+    def __attrs_post_init__(self):
+        """Set uninitialized properties."""
+        if not self._id:
+            self._id = self.generate_id()
+
+        if not self.name:
+            # TODO create a shorter name in DG
+            self.name = "{}-{}".format(secure_filename(self.command), uuid.uuid4().hex)
+
+    @classmethod
+    def from_jsonld(cls, data):
+        """Create an instance from JSON-LD data."""
+        if isinstance(data, cls):
+            return data
+        elif not isinstance(data, dict):
+            raise ValueError(data)
+
+        return PlanSchema(flattened=True).load(data)
+
     @classmethod
     def from_run(cls, run: Run, name):
         """Create a Plan from a Run."""
@@ -80,28 +99,27 @@ class Plan:
         # TODO: use run's domain instead of localhost
         return urllib.parse.urljoin("https://localhost", pathlib.posixpath.join("plans", uuid_))
 
-    def __attrs_post_init__(self):
-        """Set uninitialized properties."""
-        if not self._id:
-            self._id = self.generate_id()
-
-        if not self.name:
-            # TODO create a shorter name in DG
-            self.name = "{}-{}".format(secure_filename(self.command), uuid.uuid4().hex)
-
-    @classmethod
-    def from_jsonld(cls, data):
-        """Create an instance from JSON-LD data."""
-        if isinstance(data, cls):
-            return data
-        elif not isinstance(data, dict):
-            raise ValueError(data)
-
-        return PlanSchema(flattened=True).load(data)
-
     def as_jsonld(self):
         """Create JSON-LD."""
         return PlanSchema(flattened=True).dump(self)
+
+    def is_similar_to(self, other):
+        def get_input_patterns(plan):
+            return {e.consumes for e in plan.inputs}
+
+        def get_output_patterns(plan):
+            return {e.produces for e in plan.outputs}
+
+        def get_arguments(plan):
+            return {(a.position, a.prefix, a.value) for a in plan.arguments}
+
+        return (
+            self.command == other.command
+            and set(self.success_codes) == set(other.success_codes)
+            and get_input_patterns(self) == get_input_patterns(other)
+            and get_output_patterns(self) == get_output_patterns(self)
+            and get_arguments(self) == get_arguments(other)
+        )
 
 
 def _extract_run_uuid(run_id) -> str:

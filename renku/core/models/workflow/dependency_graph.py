@@ -71,6 +71,12 @@ class DependencyGraph:
         # TODO: Check if name is unique
         self._nodes.append(node)
 
+    def find_similar_plan(self, node: Plan) -> Plan:
+        """Search for a similar node and return it."""
+        for n in self._nodes:
+            if n.is_similar_to(node):
+                return n
+
     def as_jsonld(self):
         """Create JSON-LD."""
         return DependencyGraphSchema(flattened=True).dump(self)
