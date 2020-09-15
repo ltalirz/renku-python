@@ -33,14 +33,13 @@ of the corresponding commit identifier after the ``#`` (hash). If the file was
 imported from another repository, the short name of is shown together with the
 filename before ``@``.
 """
-from contextlib import contextmanager
-
 import click
 
 from renku.core.commands.ascii import _format_sha1
 from renku.core.commands.client import pass_local_client
 from renku.core.commands.graph import Graph
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph, ALL_USAGES
+from renku.core.utils.contexts import measure
 
 
 @click.command()
@@ -168,16 +167,3 @@ def _build_new_status(client):
     #     print(path, checksum, order)
 
     print(len(latest))
-
-
-@contextmanager
-def measure(message="TOTAL"):
-    import time
-
-    start = time.time()
-    try:
-        yield
-    finally:
-        end = time.time()
-        total_seconds = float("%.2f" % (end - start))
-        print(f"{message}: {total_seconds} seconds")
