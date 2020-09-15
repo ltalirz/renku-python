@@ -135,7 +135,7 @@ def status(ctx, client, revision, no_output, path, new):
 
 def _build_new_status(client):
     with measure("LOADED"):
-        provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
+        provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
 
     use_sparql = False
 

@@ -54,7 +54,7 @@ class Activity:
     ended_at_time = attr.ib(kw_only=True)
     generated = attr.ib(default=None, kw_only=True)
     invalidated = attr.ib(default=None, kw_only=True)
-    order = attr.ib(default=None, init=False, type=int)
+    order = attr.ib(default=None, kw_only=True, type=int)
     path = attr.ib(default=None, converter=lambda v: str(v) if v is not None else None, kw_only=True)
     qualified_usage = attr.ib(default=None, kw_only=True)
     started_at_time = attr.ib(kw_only=True)
@@ -64,7 +64,7 @@ class Activity:
     # TODO: influenced = attr.ib(kw_only=True)
 
     @classmethod
-    def from_process_run(cls, process_run: ProcessRun, path: Path, plan: Plan, client):
+    def from_process_run(cls, process_run: ProcessRun, path: Path, plan: Plan, client, order=None):
         """Create an Activity from a ProcessRun."""
         activity_id = Activity.generate_id()
         path = (client.path / path).relative_to(client.path).as_posix()
@@ -82,6 +82,7 @@ class Activity:
             generated=generated,
             id=activity_id,
             invalidated=invalidated,
+            order=order,
             path=path,
             project=process_run._project,
             qualified_usage=qualified_usage,

@@ -103,10 +103,10 @@ class RepositoryApiMixin(GitCore):
     WORKFLOW = "workflow"
     """Directory for storing workflow in Renku."""
 
-    DEPENDENCY_GRAPH = "graph.yml"
+    DEPENDENCY_GRAPH = "graph.json"
     """File for storing dependency graph."""
 
-    PROVENANCE_GRAPH = "provenance.yml"
+    PROVENANCE_GRAPH = "provenance.json"
     """Directory for storing activities in Renku."""
 
     ACTIVITY_INDEX = "activity_index.yaml"
@@ -453,16 +453,16 @@ class RepositoryApiMixin(GitCore):
 
         # Add Plan to dependency graph
         plan = Plan.from_run(run=process_run.association.plan, name=name)
-        dependency_graph = DependencyGraph.from_yaml(self.dependency_graph_path)
+        dependency_graph = DependencyGraph.from_json(self.dependency_graph_path)
         plan = dependency_graph.find_similar_plan(plan) or plan
         dependency_graph.add(plan)
-        dependency_graph.to_yaml()
+        dependency_graph.to_json()
 
         # Store Activity
         activity = Activity.from_process_run(process_run=process_run, path=path, plan=plan, client=client)
-        provenance_graph = ProvenanceGraph.from_yaml(self.provenance_graph_path)
+        provenance_graph = ProvenanceGraph.from_json(self.provenance_graph_path)
         provenance_graph.add(activity)
-        provenance_graph.to_yaml()
+        provenance_graph.to_json()
 
     def init_repository(self, force=False, user=None):
         """Initialize an empty Renku repository."""

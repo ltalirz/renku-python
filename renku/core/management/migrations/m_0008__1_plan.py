@@ -41,8 +41,8 @@ def _migrate_old_workflows(client):
     commits = reversed(commits)
     n = 1
 
-    dependency_graph = DependencyGraph.from_yaml(client.dependency_graph_path)
-    provenance_graph = ProvenanceGraph.from_yaml(client.provenance_graph_path)
+    dependency_graph = DependencyGraph.from_json(client.dependency_graph_path)
+    provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
 
     for commit in commits:
         print(f"\rProcessing commits ({n}/{n_commits})", end="")
@@ -51,8 +51,8 @@ def _migrate_old_workflows(client):
 
         n += 1
 
-    dependency_graph.to_yaml()
-    provenance_graph.to_yaml()
+    dependency_graph.to_json()
+    provenance_graph.to_json()
 
 
 def _process_commit(commit, client, dependency_graph, provenance_graph):

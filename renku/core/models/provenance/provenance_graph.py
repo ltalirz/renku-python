@@ -16,12 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Represent dependency graph."""
+import json
 from pathlib import Path
 
 import attr
 from marshmallow import EXCLUDE
 
-from renku.core.models import jsonld
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
 from renku.core.models.provenance.activity import Activity, ActivitySchema
 
@@ -53,17 +53,18 @@ class ProvenanceGraph:
         return ProvenanceGraphSchema(flattened=True).load(data)
 
     @classmethod
-    def from_yaml(cls, path):
+    def from_json(cls, path):
         """Return an instance from a YAML file."""
         # TODO: we should not write inside a read
         if Path(path).exists():
-            data = jsonld.read_yaml(path)
+            with open(path) as file_:
+                data = json.load(file_)
             self = cls.from_jsonld(data=data)
             self.__reference__ = path
         else:
             self = ProvenanceGraph(nodes=[])
             self.__reference__ = path
-            self.to_yaml()
+            self.to_json()
 
         return self
 
@@ -82,10 +83,11 @@ class ProvenanceGraph:
         """Create JSON-LD."""
         return ProvenanceGraphSchema(flattened=True).dump(self)
 
-    def to_yaml(self):
+    def to_json(self):
         """Write an instance to YAML file."""
         data = self.as_jsonld()
-        jsonld.write_yaml(path=self.__reference__, data=data)
+        with open(self.__reference__, "w", encoding="utf-8") as file_:
+            json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
     def to_conjunctive_graph(self):
         """Create an RDFLib ConjunctiveGraph."""

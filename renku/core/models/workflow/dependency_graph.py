@@ -16,6 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Represent dependency graph."""
+import json
 from pathlib import Path
 
 import attr
@@ -51,17 +52,18 @@ class DependencyGraph:
         return DependencyGraphSchema(flattened=True).load(data)
 
     @classmethod
-    def from_yaml(cls, path):
+    def from_json(cls, path):
         """Return an instance from a YAML file."""
         # TODO: we should not write inside a read
         if Path(path).exists():
-            data = jsonld.read_yaml(path)
+            with open(path) as file_:
+                data = json.load(file_)
             self = cls.from_jsonld(data=data)
             self.__reference__ = path
         else:
             self = DependencyGraph(nodes=[])
             self.__reference__ = path
-            self.to_yaml()
+            self.to_json()
 
         return self
 
@@ -81,10 +83,11 @@ class DependencyGraph:
         """Create JSON-LD."""
         return DependencyGraphSchema(flattened=True).dump(self)
 
-    def to_yaml(self):
+    def to_json(self):
         """Write an instance to YAML file."""
         data = self.as_jsonld()
-        jsonld.write_yaml(path=self.__reference__, data=data)
+        with open(self.__reference__, "w", encoding="utf-8") as file_:
+            json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
 
 class DependencyGraphSchema(JsonLDSchema):
