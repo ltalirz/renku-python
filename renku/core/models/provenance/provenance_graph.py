@@ -32,14 +32,15 @@ class ProvenanceGraph:
 
     # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
 
-    __reference__ = attr.ib(default=None, init=False, type=str)
+    path = attr.ib(default=None, init=False, type=str)
     _nodes = attr.ib(factory=list, kw_only=True)
     _order = attr.ib(default=None, init=False)
+    _files = attr.ib(factory=list, kw_only=True)
 
     def __attrs_post_init__(self):
         """Set uninitialized properties."""
-        if self._nodes is None:
-            self._nodes = []
+        self._nodes = self._nodes or []
+        self._files = self._files or {}
         self._order = 1 if len(self._nodes) == 0 else max([n.order for n in self._nodes]) + 1
 
     @classmethod
@@ -60,10 +61,10 @@ class ProvenanceGraph:
             with open(path) as file_:
                 data = json.load(file_)
             self = cls.from_jsonld(data=data)
-            self.__reference__ = path
+            self.path = path
         else:
             self = ProvenanceGraph(nodes=[])
-            self.__reference__ = path
+            self.path = path
             self.to_json()
 
         return self
@@ -75,9 +76,14 @@ class ProvenanceGraph:
 
     def add(self, node: Activity):
         """Add a node to the graph."""
-        node.order = self._order
-        self._order += 1
+        if node.order is None:
+            node.order = self._order
+            self._order += 1
+
         self._nodes.append(node)
+
+    def add_file(self, file_, order):
+        self._files[order] = file_
 
     def as_jsonld(self):
         """Create JSON-LD."""
@@ -86,7 +92,7 @@ class ProvenanceGraph:
     def to_json(self):
         """Write an instance to YAML file."""
         data = self.as_jsonld()
-        with open(self.__reference__, "w", encoding="utf-8") as file_:
+        with open(self.path, "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
     def to_conjunctive_graph(self):

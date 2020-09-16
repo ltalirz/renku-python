@@ -180,7 +180,7 @@ def _extract_commit_sha(entity_id: str):
 @attr.s(eq=False, order=False)
 class ActivityCollection:
 
-    members = attr.ib(default=None, kw_only=True)
+    members = attr.ib(factory=list, kw_only=True)
 
     @classmethod
     def from_json(cls, path):
@@ -200,14 +200,17 @@ class ActivityCollection:
 
         return ActivityCollectionSchema(flattened=True).load(data)
 
+    def add(self, activity):
+        self.members.append(activity)
+
     def as_jsonld(self):
         """Create JSON-LD."""
         return ActivityCollectionSchema(flattened=True).dump(self)
 
-    def to_json(self):
+    def to_json(self, path):
         """Write an instance to YAML file."""
         data = self.as_jsonld()
-        with open(self.__reference__, "w", encoding="utf-8") as file_:
+        with open(path, "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
 
