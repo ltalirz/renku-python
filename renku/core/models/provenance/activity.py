@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Represent a run."""
-
+import json
 import pathlib
 import urllib
 import uuid
@@ -177,6 +177,40 @@ def _extract_commit_sha(entity_id: str):
     return path[len("/blob/") :].split("/", 1)[0]
 
 
+@attr.s(eq=False, order=False)
+class ActivityCollection:
+
+    members = attr.ib(default=None, kw_only=True)
+
+    @classmethod
+    def from_json(cls, path):
+        """Return an instance from a YAML file."""
+        # TODO: we should not write inside a read
+        with open(path) as file_:
+            data = json.load(file_)
+        return cls.from_jsonld(data=data)
+
+    @classmethod
+    def from_jsonld(cls, data):
+        """Create an instance from JSON-LD data."""
+        if isinstance(data, cls):
+            return data
+        elif not isinstance(data, list):
+            raise ValueError(data)
+
+        return ActivityCollectionSchema(flattened=True).load(data)
+
+    def as_jsonld(self):
+        """Create JSON-LD."""
+        return ActivityCollectionSchema(flattened=True).dump(self)
+
+    def to_json(self):
+        """Write an instance to YAML file."""
+        data = self.as_jsonld()
+        with open(self.__reference__, "w", encoding="utf-8") as file_:
+            json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
+
+
 class ActivitySchema(JsonLDSchema):
     """Activity schema."""
 
@@ -202,3 +236,16 @@ class ActivitySchema(JsonLDSchema):
     # TODO: _was_informed_by = fields.List(prov.wasInformedBy, fields.IRI(), init_name="was_informed_by")
     # TODO: annotations = Nested(oa.hasTarget, AnnotationSchema, reverse=True, many=True)
     # TODO: influenced = Nested(prov.influenced, CollectionSchema, many=True)
+
+
+class ActivityCollectionSchema(JsonLDSchema):
+    """Activity schema."""
+
+    class Meta:
+        """Meta class."""
+
+        rdf_type = schema.Collection
+        model = ActivityCollection
+        unknown = EXCLUDE
+
+    members = Nested(prov.qualifiedUsage, ActivitySchema, many=True)
