@@ -28,7 +28,7 @@ from marshmallow import EXCLUDE
 
 from renku.core.models.calamus import JsonLDSchema, Nested, fields, prov, renku, schema
 from renku.core.models.entities import Entity, EntitySchema
-from renku.core.models.projects import Project, ProjectSchema
+from renku.core.models.projects import ProjectSchema
 from renku.core.models.provenance.activities import ProcessRun
 from renku.core.models.provenance.agents import PersonSchema, SoftwareAgentSchema
 from renku.core.models.provenance.qualified import (
@@ -42,26 +42,52 @@ from renku.core.models.provenance.qualified import (
 from renku.core.models.workflow.plan import Plan
 
 
-@attr.s(eq=False, order=False)
+# @attr.s(eq=False, order=False)
 class Activity:
     """Represent an activity in the repository."""
 
-    _id = attr.ib(default=None, kw_only=True)
-    _project = attr.ib(default=None, kw_only=True, type=Project)
-
-    agents = attr.ib(kw_only=True)
-    association = attr.ib(default=None, kw_only=True)
-    ended_at_time = attr.ib(kw_only=True)
-    generated = attr.ib(default=None, kw_only=True)
-    invalidated = attr.ib(default=None, kw_only=True)
-    order = attr.ib(default=None, kw_only=True, type=int)
-    path = attr.ib(default=None, converter=lambda v: str(v) if v is not None else None, kw_only=True)
-    qualified_usage = attr.ib(default=None, kw_only=True)
-    started_at_time = attr.ib(kw_only=True)
+    # _id = attr.ib(default=None, kw_only=True)
+    # _project = attr.ib(default=None, kw_only=True, type=Project)
+    #
+    # agents = attr.ib(kw_only=True)
+    # association = attr.ib(default=None, kw_only=True)
+    # ended_at_time = attr.ib(kw_only=True)
+    # generated = attr.ib(default=None, kw_only=True)
+    # invalidated = attr.ib(default=None, kw_only=True)
+    # order = attr.ib(default=None, kw_only=True, type=int)
+    # path = attr.ib(default=None, converter=lambda v: str(v) if v is not None else None, kw_only=True)
+    # qualified_usage = attr.ib(default=None, kw_only=True)
+    # started_at_time = attr.ib(kw_only=True)
     # TODO: _collections = attr.ib(default=attr.Factory(OrderedDict), init=False, kw_only=True)
     # TODO: _was_informed_by = attr.ib(kw_only=True,)
     # TODO: annotations = attr.ib(kw_only=True, default=None)
     # TODO: influenced = attr.ib(kw_only=True)
+
+    def __init__(
+        self,
+        agents=None,
+        association=None,
+        ended_at_time=None,
+        generated=None,
+        id_=None,
+        invalidated=None,
+        order=None,
+        path=None,
+        project=None,
+        qualified_usage=None,
+        started_at_time=None,
+    ):
+        self.agents = agents
+        self.association = association
+        self.ended_at_time = ended_at_time
+        self.generated = generated
+        self.id = id_
+        self.invalidated = invalidated
+        self.order = order
+        self.path = str(path) if path else None
+        self.project = project
+        self.qualified_usage = qualified_usage
+        self.started_at_time = started_at_time
 
     @classmethod
     def from_process_run(cls, process_run: ProcessRun, path: Path, plan: Plan, client, order=None):
@@ -80,7 +106,7 @@ class Activity:
             association=association,
             ended_at_time=process_run.ended_at_time,
             generated=generated,
-            id=activity_id,
+            id_=activity_id,
             invalidated=invalidated,
             order=order,
             path=path,
@@ -177,10 +203,14 @@ def _extract_commit_sha(entity_id: str):
     return path[len("/blob/") :].split("/", 1)[0]
 
 
-@attr.s(eq=False, order=False)
+# @attr.s(eq=False, order=False)
 class ActivityCollection:
 
-    members = attr.ib(factory=list, kw_only=True)
+    # members = attr.ib(factory=list, kw_only=True)
+
+    def __init__(self, members=None):
+        """Initialize."""
+        self.members = members or []
 
     @classmethod
     def from_json(cls, path):
@@ -224,8 +254,8 @@ class ActivitySchema(JsonLDSchema):
         model = Activity
         unknown = EXCLUDE
 
-    _id = fields.Id(init_name="id")
-    _project = Nested(schema.isPartOf, ProjectSchema, init_name="project", missing=None)
+    id = fields.Id(init_name="id_")
+    project = Nested(schema.isPartOf, ProjectSchema, missing=None)
     agents = Nested(prov.wasAssociatedWith, [PersonSchema, SoftwareAgentSchema], many=True)
     association = Nested(prov.qualifiedAssociation, AssociationSchema)
     ended_at_time = fields.DateTime(prov.endedAtTime, add_value_types=True)

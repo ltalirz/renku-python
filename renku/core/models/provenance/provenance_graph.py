@@ -119,6 +119,18 @@ class ProvenanceGraph:
 
         return graph
 
+    @staticmethod
+    def convert_activity_to_json(path, client=None, commit=None):
+        """Read an Activity from YAML and write it as JSON."""
+        import json
+        from renku.core.models.provenance.activities import Activity
+
+        activity = Activity.from_yaml(path=path, client=client, commit=commit)
+        data = activity.as_jsonld()
+
+        with open(f"{path}.json", "w", encoding="utf-8") as file_:
+            json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
+
 
 class ProvenanceGraphSchema(JsonLDSchema):
     """ProvenanceGraph schema."""
