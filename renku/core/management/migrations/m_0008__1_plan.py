@@ -70,6 +70,8 @@ def _process_commit(commit, client, dependency_graph, order):
 
         workflow = activities.Activity.from_yaml(path=path, client=client)
 
+        # TODO this is not correct because workflow._processes is an array and there is no guaranty that it will be
+        # deserialized in order
         subprocesses = list(workflow.subprocesses.items()) if isinstance(workflow, WorkflowRun) else [(0, workflow)]
         subprocesses.sort()
 

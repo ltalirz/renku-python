@@ -95,6 +95,8 @@ class Entity(CommitMixin):
 
     checksum = attr.ib(default=None, kw_only=True, type=str)
 
+    commit_sha = attr.ib(default=None, kw_only=True, type=str)  # For debugging
+
     @classmethod
     def from_revision(cls, client, path, revision="HEAD", parent=None, find_previous=True, **kwargs):
         """Return dependency from given path and revision."""

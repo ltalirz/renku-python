@@ -503,6 +503,7 @@ class ProcessRun(Activity):
         generated = []
 
         for output in run.outputs:
+            print("PATH", output.produces.path)
             entity = Entity.from_revision(client, output.produces.path, revision=commit, parent=output.produces.parent)
 
             generation = Generation(activity=process_run, role=output.sanitized_id, entity=entity)
