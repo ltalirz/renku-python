@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright 2020 - Swiss Data Science Center (SDSC)
+# Copyright 2018-2020- Swiss Data Science Center (SDSC)
 # A partnership between École Polytechnique Fédérale de Lausanne (EPFL) and
 # Eidgenössische Technische Hochschule Zürich (ETHZ).
 #
@@ -15,22 +15,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Initial migrations."""
-
+"""PoC command for testing the new graph design."""
 from pathlib import Path
 
-from git import NULL_TREE
+import click
 
-from renku.core.models.provenance import activities
-from renku.core.models.provenance.activities import WorkflowRun
-from renku.core.models.provenance.activity import Activity, ActivityCollection
-from renku.core.models.provenance.provenance_graph import ProvenanceGraph
-from renku.core.models.workflow.dependency_graph import DependencyGraph
-from renku.core.models.workflow.plan import Plan
+from renku.core.commands.client import pass_local_client
+from renku.core.management.config import RENKU_HOME
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph, ALL_USAGES
+from renku.core.utils.contexts import measure
 
 
-def migrate(client):
-    """Migration function."""
+GRAPH_METADATA_PATHS = [
+    Path(RENKU_HOME) / Path(DatasetsApiMixin.DATASETS),
+    Path(RENKU_HOME) / Path(DatasetsApiMixin.POINTERS),
+    Path(RENKU_HOME) / Path(LinkReference.REFS),
+    ".gitattributes",
+]
+
+
+@click.group()
+def graph():
+    """PoC command for testing the new graph design."""
+
+
+@graph.command()
+@click.option("-f", "--force", is_flag=True, help="Delete existing metadata and regenerate all.")
+@pass_local_client(requires_migration=True, commit=True, commit_empty=False, commit_only=GRAPH_METADATA_PATHS)
+def generate(client, force):
+    """Create new graph metadata."""
     _migrate_old_workflows(client)
 
 
@@ -100,3 +113,44 @@ def _process_commit(commit, client, dependency_graph, order):
         activity_collection.to_json(path)
 
     return order
+
+
+@graph.command()
+@click.argument("paths", type=click.Path(exists=True, dir_okay=False), nargs=-1)
+@pass_local_client(requires_migration=False)
+@click.pass_context
+def status(ctx, client, paths):
+    r"""Equivalent of `renku status`."""
+    with measure("LOADED"):
+        provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
+
+    use_sparql = False
+
+    if use_sparql:
+        with measure("GRAPH GENERATED"):
+            graph = provenance_graph.to_conjunctive_graph()
+
+        with measure("GRAPH QUERIED"):
+            result = graph.query(ALL_USAGES)
+
+            latest = {}
+
+            for path, checksum, order in result:
+                max_order, _ = latest.get(path, (-1, -1))
+                if int(order) > max_order:
+                    latest[path] = (int(order), checksum)
+    else:
+        with measure("CALCULATE RESULTS"):
+            latest = {}
+
+            for activity in provenance_graph.activities.values():
+                for e in activity.qualified_usage:
+                    max_order, _ = latest.get(e.path, (-1, -1))
+                    if int(activity.order) > max_order:
+                        latest[e.path] = (activity.order, e.checksum)
+
+    # for path in latest:
+    #     order, checksum = latest.get(path, (-1, -1))
+    #     print(path, checksum, order)
+
+    print(len(latest))

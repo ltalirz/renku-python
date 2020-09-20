@@ -20,7 +20,7 @@ import json
 import pathlib
 import urllib
 import uuid
-from typing import List
+from typing import List, Union
 
 from git import GitCommandError
 from marshmallow import EXCLUDE
@@ -47,21 +47,17 @@ class Activity:
 
     def __init__(
         self,
+        id_,
         agents=None,
         association=None,
         ended_at_time=None,
         generated=None,
-        id_=None,
         invalidated=None,
         order=None,
         path=None,
         project=None,
         qualified_usage=None,
         started_at_time=None,
-        # TODO: _collections = attr.ib(default=attr.Factory(OrderedDict), init=False, kw_only=True)
-        # TODO: _was_informed_by = attr.ib(kw_only=True,)
-        # TODO: annotations = attr.ib(kw_only=True, default=None)
-        # TODO: influenced = attr.ib(kw_only=True)
     ):
         """Initialize."""
         self.agents = agents
@@ -75,6 +71,10 @@ class Activity:
         self.project = project
         self.qualified_usage = qualified_usage
         self.started_at_time = started_at_time
+        # TODO: _collections = attr.ib(default=attr.Factory(OrderedDict), init=False, kw_only=True)
+        # TODO: _was_informed_by = attr.ib(kw_only=True,)
+        # TODO: annotations = attr.ib(kw_only=True, default=None)
+        # TODO: influenced = attr.ib(kw_only=True)
 
     @classmethod
     def from_process_run(cls, process_run: ProcessRun, plan: Plan, client, path=None, order=None):
@@ -88,27 +88,35 @@ class Activity:
         # FIXME: The same entity can have the same id during different times in its lifetime (e.g. different commit_sha,
         # but the same content). When it gets flattened, some fields will have multiple values which will cause an error
         # during deserialization. This should be fixed in Calamus by creating different ids for such an entity. Also we
-        # should store those information in the Generation object.
+        # should store those information in the Generation object. For now, we store and reuse the same entity object
+        # for all entities with the same _id.
         all_entities = {}
 
         qualified_usage = []
-        for q_usage in process_run.qualified_usage:
-            usages = _convert_usage(q_usage, activity_id, client)
+        for run_usage in process_run.qualified_usage:
+            usages = _convert_usage(run_usage, activity_id, client)
             for usage in usages:
                 usage.entity = all_entities.setdefault(usage.entity._id, usage.entity)
 
-                found = False
-                for existing_usage in qualified_usage:
-                    if existing_usage._id == usage._id:
-                        assert existing_usage.role == usage.role
-                        found = True
-                        break
-
-                if not found:
+                duplicate = [u for u in qualified_usage if u._id == usage._id]
+                if not duplicate:
                     qualified_usage.append(usage)
+                else:
+                    assert usage.role == duplicate[0].role
 
-        generated = [_convert_generation(g, activity_id, client) for g in process_run.generated]
-        invalidated = [_convert_entity(e, activity_id, client) for e in process_run.invalidated]
+        generated = []
+        for run_generation in process_run.generated:
+            generations = _convert_generation(run_generation, activity_id, client)
+            for generation in generations:
+                generation.entity = all_entities.setdefault(generation.entity._id, generation.entity)
+
+                duplicate = [g for g in generated if g._id == generation._id]
+                if not duplicate:
+                    generated.append(generation)
+                else:
+                    assert generation.role == duplicate[0].role
+
+        invalidated = [_convert_invalidated_entity(e, activity_id, client) for e in process_run.invalidated]
 
         return cls(
             agents=process_run.agents,
@@ -149,8 +157,9 @@ def _convert_usage(usage: Usage, activity_id, client) -> List[Usage]:
     """Convert a CommandInput to CommandInputTemplate."""
     assert isinstance(usage, Usage)
 
-    entities = _convert_usage_entity(entity=usage.entity, activity_id=activity_id, client=client)
-    assert entities, f"Top level entity in usage was not found: {usage._id}"
+    commit_sha = _extract_commit_sha(entity_id=usage.entity._id)
+    entities = _convert_usage_entity(entity=usage.entity, revision=commit_sha, activity_id=activity_id, client=client)
+    assert entities, f"Root entity was not found for Usage: {usage._id}"
 
     usages = []
 
@@ -166,15 +175,44 @@ def _convert_generation(generation: Generation, activity_id, client) -> List[Gen
     """Convert a CommandInput to CommandInputTemplate."""
     assert isinstance(generation, Generation)
 
+    commit_sha = _extract_commit_sha(entity_id=generation.entity._id)
+    entities = _convert_generation_entity(
+        entity=generation.entity, revision=commit_sha, activity_id=activity_id, client=client
+    )
+    root_entity_was_found = any([e for e in entities if e.path == generation.entity.path])
+    assert root_entity_was_found, f"Root entity was not found for Generation: {generation._id}"
+
     generations = []
 
-    entities = _convert_generation_entity(entity=usage.entity, activity_id=activity_id, client=client)
-    assert entities, f"Top level entity in usage was not found: {usage._id}"
+    for entity in entities:
+        quoted_path = urllib.parse.quote(entity.path)
+        generation_id = f"{activity_id}/generation/{entity.checksum}/{quoted_path}"
+        generations.append(Generation(id=generation_id, entity=entity, role=generation.role))
+
+    return generations
 
 
-    entity = _convert_entity(entity=generation.entity, activity_id=activity_id, client=client)
-    sanitized_id = _extract_generation_sanitized_id(generation._id)
-    return Generation(id=f"{activity_id}/{sanitized_id}", entity=entity, role=generation.role)
+def _convert_invalidated_entity(entity: Entity, activity_id, client) -> Union[Entity, None]:
+    """Convert a CommandInput to CommandInputTemplate."""
+    assert isinstance(entity, Entity)
+    assert not isinstance(entity, Collection)
+
+    commit_sha = _extract_commit_sha(entity_id=entity._id)
+    commit = client.find_previous_commit(revision=commit_sha, paths=entity.path)
+    commit_sha = commit.hexsha
+    checksum = _get_object_hash(revision=commit_sha, path=entity.path, client=client)
+    if not checksum:
+        # Entity was deleted at commit_sha; get the one before it to have object_id
+        checksum = _get_object_hash(revision=f"{commit_sha}~", path=entity.path, client=client)
+        if not checksum:
+            print(f"Cannot find invalidated entity hash for {entity._id} at {commit_sha}:{entity.path}")
+            return None
+
+    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
+    new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project, commit_sha=commit_sha)
+    assert type(new_entity) is type(entity)
+
+    return new_entity
 
 
 def _extract_usage_sanitized_id(usage_id):
@@ -195,49 +233,68 @@ def _extract_generation_sanitized_id(generation_id):
     return path[start + 1 :]
 
 
-def _convert_usage_entity(entity: Entity, activity_id, client) -> List[Entity]:
+def _convert_usage_entity(entity: Entity, revision, activity_id, client) -> List[Entity]:
     """Convert an Entity to one with proper metadata.
 
-    For Collection return list of all sub-entities that existed in the same commit as Collection or before it.
+    If entity is a Collection, return list of all sub-entities that existed in the same commit as the entity or before
+    it.
     """
     assert isinstance(entity, Entity)
 
-    commit_sha = _extract_commit_sha(entity_id=entity._id)
-    checksum = _get_object_hash(commit_sha=commit_sha, path=entity.path, client=client)
+    checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
     if not checksum:
+        print(f"Cannot find Usage entity hash {revision}:{entity.path}")
         return []
 
     id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-    new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project, commit_sha=commit_sha)
+    # NOTE: commit_sha is not the commit that the entity was modified; it is the commit that the parent entity was
+    # modified.
+    new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project, commit_sha=revision)
     assert type(new_entity) is type(entity)
 
     entities = [new_entity]
 
     if isinstance(entity, Collection):
         for sub_entity in entity.members:
-            entities += _convert_usage_entity(entity=sub_entity, activity_id=activity_id, client=client)
+            entities += _convert_usage_entity(
+                entity=sub_entity, revision=revision, activity_id=activity_id, client=client
+            )
 
     return entities
 
 
-def _convert_generation_entity(entity: Entity, activity_id, client) -> List[Entity]:
-    """Convert a CommandInput to CommandInputTemplate."""
+def _convert_generation_entity(entity: Entity, revision, activity_id, client) -> List[Entity]:
+    """Convert an Entity to one with proper metadata.
+
+    If entity is a Collection, return list of all sub-entities that are modified in the same commit as the entity.
+    """
     assert isinstance(entity, Entity)
 
-    commit_sha = _extract_commit_sha(entity_id=entity._id)
-    checksum = _get_object_hash(commit_sha=commit_sha, path=entity.path, client=client)
-    if not checksum:
-        return []
+    entities = []
 
-    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-    new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project, commit_sha=commit_sha)
-    assert type(new_entity) is type(entity)
+    entity_commit = client.find_previous_commit(paths=entity.path, revision=revision)
+    if entity_commit.hexsha == revision:
+        checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
+        if not checksum:
+            print(f"Cannot find Generation entity hash {revision}/{entity.path}")
+            return []
 
-    entities = [new_entity]
+        id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
+        new_entity = Entity(
+            id=id_, checksum=checksum, path=entity.path, project=entity._project, commit_sha=entity_commit.hexsha
+        )
+        assert type(new_entity) is type(entity)
 
+        entities.append(new_entity)
+    else:
+        print(f"Entity {entity._id} was not modified in its parent commit: {revision}")
+
+    # NOTE: Even if entity is not modified in the `revision`, it might have sub-entities that are modified in `revision`
     if isinstance(entity, Collection):
         for sub_entity in entity.members:
-            entities += _convert_usage_entity(entity=sub_entity, activity_id=activity_id, client=client)
+            entities += _convert_generation_entity(
+                entity=sub_entity, revision=revision, activity_id=activity_id, client=client
+            )
 
     return entities
 
@@ -249,17 +306,15 @@ def _generate_entity_id(entity_checksum, path, activity_id):
     return urllib.parse.urlparse(activity_id)._replace(path=path)
 
 
-def _get_object_hash(commit_sha, path, client):
+def _get_object_hash(revision, path, client):
     path = str(path)
     try:
-        return client.repo.git.rev_parse(f"{commit_sha}:{path}")
+        return client.repo.git.rev_parse(f"{revision}:{path}")
     except GitCommandError:
-        # TODO: it also can be that the file was not there when the command ran but was there when workflows were
-        # migrated.
-        # this can happen for usage. can it also happen for generation?
+        # NOTE: it also can be that the file was not there when the command ran but was there when workflows were
+        # migrated. This can happen for usage. Can it also happen for generation?
         # TODO: what if the project is broken
-        # raise ValueError(f"Cannot get object hash '{commit_sha}:{path}'")
-        print(f"Cannot find object hash {commit_sha}/{path}")
+        # raise ValueError(f"Cannot get object hash '{revision}:{path}'")
         return None
 
 
@@ -268,7 +323,10 @@ def _extract_commit_sha(entity_id: str):
     path = urllib.parse.urlparse(entity_id).path
     assert path.startswith("/blob/"), f"Invalid entity identifier: {entity_id}"
 
-    return path[len("/blob/") :].split("/", 1)[0]
+    commit_sha = path[len("/blob/") :].split("/", 1)[0]
+    assert len(commit_sha) == 40, f"Entity does not have valid commit SHA: {entity_id}"
+
+    return commit_sha
 
 
 class ActivityCollection:
@@ -317,8 +375,7 @@ class ActivityCollection:
 
     @classmethod
     def from_json(cls, path):
-        """Return an instance from a YAML file."""
-        # TODO: we should not write inside a read
+        """Return an instance from a file."""
         with open(path) as file_:
             data = json.load(file_)
         return cls.from_jsonld(data=data)

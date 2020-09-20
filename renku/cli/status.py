@@ -33,31 +33,25 @@ of the corresponding commit identifier after the ``#`` (hash). If the file was
 imported from another repository, the short name of is shown together with the
 filename before ``@``.
 """
+
 import click
 
 from renku.core.commands.ascii import _format_sha1
 from renku.core.commands.client import pass_local_client
 from renku.core.commands.graph import Graph
-from renku.core.models.provenance.provenance_graph import ProvenanceGraph, ALL_USAGES
-from renku.core.utils.contexts import measure
 
 
 @click.command()
-@click.option("--new", is_flag=True, help="Use new graph model.")
 @click.option("--revision", default="HEAD", help="Display status as it was in the given revision")
 @click.option("--no-output", is_flag=True, default=False, help="Display commands without output files.")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False), nargs=-1)
 @pass_local_client(clean=True, requires_migration=True, commit=False)
 @click.pass_context
-def status(ctx, client, revision, no_output, path, new):
+def status(ctx, client, revision, no_output, path):
     """Show a status of the repository."""
-    if not new:
-        graph = Graph(client)
-        # TODO filter only paths = {graph.normalize_path(p) for p in path}
-        status = graph.build_status(revision=revision, can_be_cwl=no_output)
-    else:
-        status = _build_new_status(client)
-        return
+    graph = Graph(client)
+    # TODO filter only paths = {graph.normalize_path(p) for p in path}
+    status = graph.build_status(revision=revision, can_be_cwl=no_output)
 
     if client.has_external_files():
         click.echo(
@@ -131,39 +125,3 @@ def status(ctx, client, revision, no_output, path, new):
         click.echo()
 
     ctx.exit(1 if status["outdated"] else 0)
-
-
-def _build_new_status(client):
-    with measure("LOADED"):
-        provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
-
-    use_sparql = False
-
-    if use_sparql:
-        with measure("GRAPH GENERATED"):
-            graph = provenance_graph.to_conjunctive_graph()
-
-        with measure("GRAPH QUERIED"):
-            result = graph.query(ALL_USAGES)
-
-            latest = {}
-
-            for path, checksum, order in result:
-                max_order, _ = latest.get(path, (-1, -1))
-                if int(order) > max_order:
-                    latest[path] = (int(order), checksum)
-    else:
-        with measure("CALCULATE RESULTS"):
-            latest = {}
-
-            for activity in provenance_graph.activities.values():
-                for e in activity.qualified_usage:
-                    max_order, _ = latest.get(e.path, (-1, -1))
-                    if int(activity.order) > max_order:
-                        latest[e.path] = (activity.order, e.checksum)
-
-    # for path in latest:
-    #     order, checksum = latest.get(path, (-1, -1))
-    #     print(path, checksum, order)
-
-    print(len(latest))
