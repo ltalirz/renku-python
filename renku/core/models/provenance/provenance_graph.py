@@ -21,9 +21,11 @@ from pathlib import Path
 
 import attr
 from marshmallow import EXCLUDE
+from rdflib import ConjunctiveGraph
 
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
 from renku.core.models.provenance.activity import Activity, ActivitySchema
+from renku.core.utils.contexts import measure
 
 
 @attr.s(eq=False, order=False)
@@ -99,7 +101,6 @@ class ProvenanceGraph:
         """Create an RDFLib ConjunctiveGraph."""
         import json
         import pyld
-        from rdflib import ConjunctiveGraph
         from rdflib.plugin import Parser, register
 
         output = pyld.jsonld.expand([action.as_jsonld() for action in self._nodes])
@@ -116,6 +117,26 @@ class ProvenanceGraph:
         graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
         graph.bind("schema", "http://schema.org/")
         graph.bind("renku", "https://swissdatasciencecenter.github.io/renku-ontology#")
+
+        return graph
+
+    @classmethod
+    def to_graph(cls, provenance_path):
+        """Create an rdflib.ConjunctiveGraph from all files."""
+        graph = ConjunctiveGraph()
+
+        graph.bind("prov", "http://www.w3.org/ns/prov#")
+        graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
+        graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
+        graph.bind("wf", "http://www.w3.org/2005/01/wf/flow#")
+        graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
+        graph.bind("schema", "http://schema.org/")
+        graph.bind("renku", "https://swissdatasciencecenter.github.io/renku-ontology#")
+
+        with measure():
+            for path in Path(provenance_path).glob("*json"):
+                g = ConjunctiveGraph().parse(location=str(path), format="json-ld")
+                graph += g
 
         return graph
 

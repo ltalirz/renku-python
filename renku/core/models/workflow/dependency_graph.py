@@ -19,27 +19,21 @@
 import json
 from pathlib import Path
 
-import attr
 from marshmallow import EXCLUDE
 
-from renku.core.models import jsonld
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
 from renku.core.models.workflow.plan import Plan, PlanSchema
 
 
-@attr.s(eq=False, order=False)
 class DependencyGraph:
     """A graph of all execution templates (Plans)."""
 
     # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
 
-    __reference__ = attr.ib(default=None, init=False, type=str)
-    _nodes = attr.ib(factory=list, kw_only=True)
-
-    def __attrs_post_init__(self):
+    def __init__(self, nodes=None, path=None):
         """Set uninitialized properties."""
-        if self._nodes is None:
-            self._nodes = []
+        self._nodes = nodes or []
+        self._path = path
 
     @classmethod
     def from_jsonld(cls, data):
@@ -53,17 +47,15 @@ class DependencyGraph:
 
     @classmethod
     def from_json(cls, path):
-        """Return an instance from a YAML file."""
-        # TODO: we should not write inside a read
+        """Create an instance from a file."""
         if Path(path).exists():
             with open(path) as file_:
                 data = json.load(file_)
-            self = cls.from_jsonld(data=data)
-            self.__reference__ = path
+                self = cls.from_jsonld(data=data)
         else:
-            self = DependencyGraph(nodes=[])
-            self.__reference__ = path
-            self.to_json()
+            self = DependencyGraph(nodes=[], path=path)
+
+        self._path = path
 
         return self
 
@@ -79,14 +71,15 @@ class DependencyGraph:
             if n.is_similar_to(node):
                 return n
 
-    def as_jsonld(self):
+    def to_jsonld(self):
         """Create JSON-LD."""
         return DependencyGraphSchema(flattened=True).dump(self)
 
-    def to_json(self):
-        """Write an instance to YAML file."""
-        data = self.as_jsonld()
-        with open(self.__reference__, "w", encoding="utf-8") as file_:
+    def to_json(self, path=None):
+        """Write to file."""
+        path = path or self._path
+        data = self.to_jsonld()
+        with open(path, "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
 

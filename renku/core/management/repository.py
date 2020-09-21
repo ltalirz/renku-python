@@ -106,8 +106,11 @@ class RepositoryApiMixin(GitCore):
     DEPENDENCY_GRAPH = "graph.json"
     """File for storing dependency graph."""
 
+    PROVENANCE = "provenance"
+    """Directory for storing provenance graph."""
+
     PROVENANCE_GRAPH = "provenance.json"
-    """Directory for storing activities in Renku."""
+    """File for storing ProvenanceGraph."""
 
     ACTIVITY_INDEX = "activity_index.yaml"
     """Caches activities that generated a path."""
@@ -179,6 +182,11 @@ class RepositoryApiMixin(GitCore):
     def activity_index_path(self):
         """Path to the activity filepath cache."""
         return self.renku_path / self.ACTIVITY_INDEX
+
+    @property
+    def provenance_path(self):
+        """Path to store activity files."""
+        return self.renku_path / self.PROVENANCE
 
     @property
     def provenance_graph_path(self):

@@ -22,7 +22,6 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-import attr
 from marshmallow import EXCLUDE
 from werkzeug.utils import secure_filename
 
@@ -39,26 +38,20 @@ from renku.core.models.workflow.parameters import (
 from renku.core.models.workflow.run import Run
 
 
-@attr.s(eq=False, order=False)
 class Plan:
     """Represent a `renku run` execution template."""
 
-    _id = attr.ib(default=None, kw_only=True)
-    arguments = attr.ib(factory=list, kw_only=True)
-    command = attr.ib(default=None, kw_only=True, type=str)
-    inputs = attr.ib(factory=list, kw_only=True)
-    name = attr.ib(kw_only=True)
-    outputs = attr.ib(factory=list, kw_only=True)
-    success_codes = attr.ib(kw_only=True, factory=list, type=list)
+    def __init__(self, id_, arguments=None, command=None, inputs=None, name=None, outputs=None, success_codes=None):
+        """Initialize."""
+        self.arguments = arguments or []
+        self.command = command
+        self.id_ = id_
+        self.inputs = inputs or []
+        # TODO create a shorter name
+        self.name = name or "{}-{}".format(secure_filename(self.command), uuid.uuid4().hex)
+        self.outputs = outputs or []
+        self.success_codes = success_codes or []
 
-    def __attrs_post_init__(self):
-        """Set uninitialized properties."""
-        if not self._id:
-            self._id = self.generate_id()
-
-        if not self.name:
-            # TODO create a shorter name in DG
-            self.name = "{}-{}".format(secure_filename(self.command), uuid.uuid4().hex)
 
     @classmethod
     def from_jsonld(cls, data):
@@ -73,8 +66,7 @@ class Plan:
     @classmethod
     def from_run(cls, run: Run, name):
         """Create a Plan from a Run."""
-        if run.subprocesses:
-            raise ValueError("Cannot create from a Run with subprocesses")
+        assert not run.subprocesses, f"Cannot create from a Run with subprocesses: {run._id}"
 
         uuid_ = _extract_run_uuid(run._id)
         plan_id = cls.generate_id(uuid_=uuid_)
@@ -85,7 +77,7 @@ class Plan:
         return cls(
             arguments=run.arguments,
             command=run.command,
-            id=plan_id,
+            id_=plan_id,
             inputs=inputs,
             name=name,
             outputs=outputs,
@@ -99,7 +91,7 @@ class Plan:
         # TODO: use run's domain instead of localhost
         return urllib.parse.urljoin("https://localhost", pathlib.posixpath.join("plans", uuid_))
 
-    def as_jsonld(self):
+    def to_jsonld(self):
         """Create JSON-LD."""
         return PlanSchema(flattened=True).dump(self)
 
@@ -132,8 +124,8 @@ def _convert_command_input(input_: CommandInput, plan_id) -> CommandInputTemplat
     """Convert a CommandInput to CommandInputTemplate."""
     assert isinstance(input_, CommandInput)
 
-    # TODO: add a '*' if this is a directory
-    # TODO: For now this is always a fully qualified path; in future this might be glob pattern.
+    # TODO: add a '**' if this is a directory
+    # TODO: For now this is always a fully qualified path; in future this might be a glob pattern.
     consumes = input_.consumes.path
 
     return CommandInputTemplate(
@@ -173,9 +165,9 @@ class PlanSchema(JsonLDSchema):
         model = Plan
         unknown = EXCLUDE
 
-    _id = fields.Id(init_name="id")
     arguments = Nested(renku.hasArguments, CommandArgumentSchema, many=True, missing=None)
     command = fields.String(renku.command, missing=None)
+    id_ = fields.Id()
     inputs = Nested(renku.hasInputs, CommandInputTemplateSchema, many=True, missing=None)
     name = fields.String(schema.name, missing=None)
     outputs = Nested(renku.hasOutputs, CommandOutputTemplateSchema, many=True, missing=None)
