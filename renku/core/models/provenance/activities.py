@@ -42,6 +42,7 @@ from renku.core.models.entities import (
 from renku.core.models.locals import ReferenceMixin
 from renku.core.models.refs import LinkReference
 from renku.core.models.workflow.run import Run
+from renku.core.utils.scm import git_unicode_unescape
 
 from .agents import Person, PersonSchema, SoftwareAgentSchema, renku_agent
 from .qualified import Association, AssociationSchema, Generation, GenerationSchema, Usage, UsageSchema
@@ -139,7 +140,7 @@ class Activity(CommitMixin, ReferenceMixin):
             # in this backwards diff
             if file_.change_type == "A":
                 continue
-            path_ = Path(file_.a_path)
+            path_ = Path(git_unicode_unescape(file_.a_path))
 
             is_dataset = self.client.DATASETS in str(path_)
             not_refs = LinkReference.REFS not in str(path_)
@@ -218,7 +219,7 @@ class Activity(CommitMixin, ReferenceMixin):
             # in this backwards diff
             if file_.change_type != "A":
                 continue
-            path_ = Path(file_.a_path)
+            path_ = Path(git_unicode_unescape(file_.a_path))
 
             index.add(str(path_))
 
@@ -234,7 +235,7 @@ class Activity(CommitMixin, ReferenceMixin):
             # in this backwards diff
             if file_.change_type == "A":
                 continue
-            path_ = Path(file_.a_path)
+            path_ = Path(git_unicode_unescape(file_.a_path))
 
             is_dataset = self.client.DATASETS in str(path_)
             not_refs = LinkReference.REFS not in str(path_)
@@ -344,7 +345,6 @@ class Activity(CommitMixin, ReferenceMixin):
     def from_yaml(cls, path, client=None, commit=None):
         """Return an instance from a YAML file."""
         data = jsonld.read_yaml(path)
-
         self = cls.from_jsonld(data=data, client=client, commit=commit)
         self.__reference__ = path
 
