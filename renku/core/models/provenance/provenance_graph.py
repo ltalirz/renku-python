@@ -32,8 +32,6 @@ from renku.core.utils.contexts import measure
 class ProvenanceGraph:
     """A graph of all executions (Activities)."""
 
-    # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
-
     path = attr.ib(default=None, init=False, type=str)
     _nodes = attr.ib(factory=list, kw_only=True)
     _order = attr.ib(default=None, init=False)
@@ -133,10 +131,10 @@ class ProvenanceGraph:
         graph.bind("schema", "http://schema.org/")
         graph.bind("renku", "https://swissdatasciencecenter.github.io/renku-ontology#")
 
-        with measure():
-            for path in Path(provenance_path).glob("*json"):
-                g = ConjunctiveGraph().parse(location=str(path), format="json-ld")
-                graph += g
+        for path in Path(provenance_path).glob("*json"):
+            g = ConjunctiveGraph().parse(location=str(path), format="json-ld")
+            graph += g
+            # graph.parse(location=str(path), format="json-ld")
 
         return graph
 
@@ -251,3 +249,70 @@ LATEST_GENERATIONS = """
         FILTER(?order = ?maxOrder)
     }
     """
+
+
+QUERY = """
+    SELECT ?path ?checksum ?order
+    WHERE
+    {
+        ?activity a prov:Activity .
+        ?activity renku:order ?order .
+        ?activity (prov:qualifiedUsage/prov:entity) ?entity .
+        ?entity renku:checksum ?checksum .
+        ?entity prov:atLocation ?path .
+    }
+    """
+
+
+LATEST_ACTIVITIES = """
+    SELECT ?activity ?order ?maxOrder
+    WHERE
+    {
+        {
+            SELECT ?activity ?plan ?order
+            WHERE
+            {
+                ?activity a prov:Activity .
+                ?activity prov:qualifiedAssociation/prov:hadPlan ?plan .
+                ?activity renku:order ?order
+            }
+        }
+        .
+        {
+            SELECT ?plan (MAX(?order_) AS ?maxOrder)
+            WHERE
+            {
+                ?activity_ a prov:Activity .
+                ?activity_ prov:qualifiedAssociation/prov:hadPlan ?plan .
+                ?activity_ renku:order ?order_
+            }
+            GROUP BY ?plan
+        }
+        FILTER(?order = ?maxOrder)
+    }
+    """
+A = """
+            SELECT ?plan (MAX(?order_) AS ?maxOrder)
+            WHERE
+            {
+                ?activity_ a prov:Activity .
+                ?activity_ prov:qualifiedAssociation/prov:hadPlan ?plan .
+                ?activity_ renku:order ?order_
+            }
+            GROUP BY ?plan
+    """
+
+
+B = """
+            SELECT ?activity ?plan ?order ?usage ?checksum ?path
+            WHERE
+            {
+                ?activity a prov:Activity .
+                ?activity prov:qualifiedAssociation/prov:hadPlan ?plan .
+                ?activity renku:order ?order .
+                ?activity prov:qualifiedUsage ?usage .
+                ?usage prov:entity ?entity .
+                ?entity prov:atLocation ?path .
+                ?entity renku:checksum ?checksum .
+            }
+"""

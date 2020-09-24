@@ -460,7 +460,7 @@ class RepositoryApiMixin(GitCore):
             self.add_to_activity_index(process_run)
 
         # Add Plan to dependency graph
-        plan = Plan.from_run(run=process_run.association.plan, name=name)
+        plan = Plan.from_run(run=process_run.association.plan, name=name, client=client)
         dependency_graph = DependencyGraph.from_json(self.dependency_graph_path)
         plan = dependency_graph.find_similar_plan(plan) or plan
         dependency_graph.add(plan)

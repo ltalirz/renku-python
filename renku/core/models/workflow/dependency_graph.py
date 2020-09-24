@@ -30,34 +30,10 @@ class DependencyGraph:
 
     # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
 
-    def __init__(self, nodes=None, path=None):
+    def __init__(self, nodes=None):
         """Set uninitialized properties."""
         self._nodes = nodes or []
-        self._path = path
-
-    @classmethod
-    def from_jsonld(cls, data):
-        """Create an instance from JSON-LD data."""
-        if isinstance(data, cls):
-            return data
-        elif not isinstance(data, list):
-            raise ValueError(data)
-
-        return DependencyGraphSchema(flattened=True).load(data)
-
-    @classmethod
-    def from_json(cls, path):
-        """Create an instance from a file."""
-        if Path(path).exists():
-            with open(path) as file_:
-                data = json.load(file_)
-                self = cls.from_jsonld(data=data)
-        else:
-            self = DependencyGraph(nodes=[], path=path)
-
-        self._path = path
-
-        return self
+        self._path = None  # TODO: Calamus complains if this is in parameters list
 
     def add(self, node: Plan):
         """Add a node to the graph."""
@@ -70,6 +46,30 @@ class DependencyGraph:
         for n in self._nodes:
             if n.is_similar_to(node):
                 return n
+
+    @classmethod
+    def from_json(cls, path):
+        """Create an instance from a file."""
+        if Path(path).exists():
+            with open(path) as file_:
+                data = json.load(file_)
+                self = cls.from_jsonld(data=data)
+        else:
+            self = DependencyGraph(nodes=[])
+
+        self._path = path
+
+        return self
+
+    @classmethod
+    def from_jsonld(cls, data):
+        """Create an instance from JSON-LD data."""
+        if isinstance(data, cls):
+            return data
+        elif not isinstance(data, list):
+            raise ValueError(data)
+
+        return DependencyGraphSchema(flattened=True).load(data)
 
     def to_jsonld(self):
         """Create JSON-LD."""

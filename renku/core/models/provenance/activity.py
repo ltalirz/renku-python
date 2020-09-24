@@ -19,6 +19,7 @@
 import json
 import pathlib
 import uuid
+from collections import deque
 from typing import List, Union
 from urllib.parse import urljoin, quote, urlparse
 
@@ -40,6 +41,7 @@ from renku.core.models.provenance.qualified import (
 )
 from renku.core.models.workflow.dependency_graph import DependencyGraph
 from renku.core.models.workflow.plan import Plan
+from renku.core.utils.urls import get_host
 
 
 class Activity:
@@ -78,7 +80,7 @@ class Activity:
     @classmethod
     def from_process_run(cls, process_run: ProcessRun, plan: Plan, client, path=None, order=None):
         """Create an Activity from a ProcessRun."""
-        activity_id = Activity.generate_id()
+        activity_id = Activity.generate_id(client)
         # if path:
         #     path = str((client.path / path).relative_to(client.path))
 
@@ -133,10 +135,10 @@ class Activity:
         )
 
     @staticmethod
-    def generate_id():
+    def generate_id(client):
         """Generate an identifier for an activity."""
-        # TODO: use proper domain instead of localhost
-        return urljoin("https://localhost", pathlib.posixpath.join("activities", str(uuid.uuid4())))
+        host = get_host(client)
+        return urljoin(f"https://{host}", pathlib.posixpath.join("activities", str(uuid.uuid4())))
 
     @classmethod
     def from_jsonld(cls, data):
@@ -153,117 +155,152 @@ class Activity:
         return ActivitySchema(flattened=True).dump(self)
 
 
-# def _convert_usage(usage: Usage, activity_id, client) -> List[Usage]:
-#     """Convert a CommandInput to CommandInputTemplate."""
-#     assert isinstance(usage, Usage)
-#
-#     commit_sha = _extract_commit_sha(entity_id=usage.entity._id)
-#     entities = _convert_usage_entity(entity=usage.entity, revision=commit_sha, activity_id=activity_id, client=client)
-#     assert entities, f"Root entity was not found for Usage: {usage._id}"
-#
-#     usages = []
-#
-#     for entity in entities:
-#         quoted_path = quote(entity.path)
-#         usage_id = urljoin(activity_id, pathlib.posixpath.join("usage", entity.checksum, quoted_path))
-#         usages.append(Usage(id=usage_id, entity=entity, role=usage.role))
-#
-#     return usages
-
-
 def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) -> List[Usage]:
     """Convert a CommandInput to CommandInputTemplate."""
     # TODO: sort qualified_usage based on position
     usages = []
-    collections = []
+    collections = deque()
 
     for usage in qualified_usage:
         commit_sha = _extract_commit_sha(entity_id=usage.entity._id)
-        entity = _create_usage_entity(usage.entity, commit_sha, activity_id, client)
-        assert entity, f"Root entity was not found for Usage: {usage._id}"
+        entity = _convert_usage_entity(usage.entity, commit_sha, activity_id, client)
+        assert entity, f"Top entity was not found for Usage: {usage._id}"
 
-        usage_id = urljoin(activity_id, pathlib.posixpath.join("usage", entity.checksum, quote(entity.path)))
-        if any([u for u in usages if u._id == usage_id]):
-            # Add role to id because role is unique in each activity
-            usage_id = f"{usage_id}/{usage.role}"
+        usage_id = urljoin(
+            activity_id, pathlib.posixpath.join("usage", usage.role, entity.checksum, quote(entity.path))
+        )
+        duplicates_found = any([u for u in usages if u._id == usage_id])
+        assert not duplicates_found
+
         new_usage = Usage(id=usage_id, entity=entity, role=usage.role)
         usages.append(new_usage)
+
         if isinstance(entity, Collection):
-            collections.append(usage)
+            collections.append((entity, usage.role))
 
-    for usage in collections:
-        commit_sha = _extract_commit_sha(entity_id=usage.entity._id)
-        entities = _create_usage_collection(usage.entity, commit_sha, activity_id, client)
-
-        for entity in entities:
-            quoted_path = quote(entity.path)
-            usage_id = urljoin(activity_id, pathlib.posixpath.join("usage", entity.checksum, quoted_path))
-            # Do not include child usages if a similar usage exists
-            if any([u for u in usages if u._id == usage_id]):
-                continue
-            new_usage = Usage(id=usage_id, entity=entity, role=usage.role)
-            usages.append(new_usage)
+    # while collections:
+    #     collection, role = collections.popleft()
+    #     for entity in collection.members:
+    #         assert entity.checksum is not None
+    #         usage_id = urljoin(
+    #             activity_id, pathlib.posixpath.join("usage", role, entity.checksum, quote(entity.path))
+    #         )
+    #         # Do not include child usages if a similar usage exists
+    #         if any([u for u in usages if u._id == usage_id]):
+    #             continue
+    #         new_usage = Usage(id=usage_id, entity=entity, role=role)
+    #         usages.append(new_usage)
+    #
+    #         if isinstance(entity, Collection):
+    #             collections.append((entity, role))
 
     return usages
-
-
-# def _convert_generation(generation: Generation, activity_id, client) -> List[Generation]:
-#     """Convert a CommandInput to CommandInputTemplate."""
-#     assert isinstance(generation, Generation)
-#
-#     commit_sha = _extract_commit_sha(entity_id=generation.entity._id)
-#     entities = _convert_generation_entity(
-#         entity=generation.entity, revision=commit_sha, activity_id=activity_id, client=client
-#     )
-#     root_entity_was_found = any([e for e in entities if e.path == generation.entity.path])
-#     assert root_entity_was_found, f"Root entity was not found for Generation: {generation._id}"
-#
-#     generations = []
-#
-#     for entity in entities:
-#         quoted_path = quote(entity.path)
-#         generation_id = f"{activity_id}/generation/{entity.checksum}/{quoted_path}"
-#         generations.append(Generation(id=generation_id, entity=entity, role=generation.role))
-#
-#     return generations
 
 
 def _convert_generated(generated: List[Generation], activity_id, client) -> List[Generation]:
     """Convert a CommandInput to CommandInputTemplate."""
     # TODO: sort generated based on position
     generations = []
-    collections = []
+    collections = deque()
 
     for generation in generated:
         commit_sha = _extract_commit_sha(entity_id=generation.entity._id)
-        entity = _create_generation_entity(generation.entity, commit_sha, activity_id, client)
+        entity = _convert_generation_entity(generation.entity, commit_sha, activity_id, client)
         assert entity, f"Root entity was not found for Generation: {generation._id}"
 
         quoted_path = quote(entity.path)
-        generation_id = urljoin(activity_id, pathlib.posixpath.join("generation", entity.checksum, quoted_path))
-        if any([g for g in generations if g._id == generation_id]):
-            # Always include root generations
-            # Add role to id because role is unique in each activity
-            generation_id = f"{generation_id}/{generation.role}"
+        generation_id = urljoin(
+            activity_id, pathlib.posixpath.join("generation", generation.role, entity.checksum, quoted_path)
+        )
+        duplicates_found = any([g for g in generations if g._id == generation_id])
+        assert not duplicates_found
+
         new_generation = Generation(id=generation_id, entity=entity, role=generation.role)
         generations.append(new_generation)
+
         if isinstance(entity, Collection):
-            collections.append(generation)
+            collections.append((entity, generation.role))
 
-    for generation in collections:
-        commit_sha = _extract_commit_sha(entity_id=generation.entity._id)
-        entities = _create_generation_collection(generation.entity, commit_sha, activity_id, client)
-
-        for entity in entities:
-            quoted_path = quote(entity.path)
-            generation_id = urljoin(activity_id, pathlib.posixpath.join("generation", entity.checksum, quoted_path))
-            # Do not include child generations if a similar generation exists
-            if any([u for u in generations if u._id == generation_id]):
-                continue
-            new_generation = Generation(id=generation_id, entity=entity, role=generation.role)
-            generations.append(new_generation)
+    # while collections:
+    #     collection, role = collections.popleft()
+    #     for entity in collection.members:
+    #         assert entity.checksum is not None
+    #         generation_id = urljoin(
+    #             activity_id, pathlib.posixpath.join("generation", role, entity.checksum, quote(entity.path))
+    #         )
+    #         # Do not include child generations if a similar generation exists
+    #         if any([u for u in generations if u._id == generation_id]):
+    #             continue
+    #         new_generation = Generation(id=generation_id, entity=entity, role=role)
+    #         generations.append(new_generation)
+    #
+    #         if isinstance(entity, Collection):
+    #             collections.append((entity, role))
 
     return generations
+
+
+def _convert_usage_entity(entity: Entity, revision, activity_id, client) -> Union[Entity, None]:
+    """Convert an Entity to one with proper metadata.
+
+    For Collections, add members that are modified in the same commit or before the revision.
+    """
+    assert isinstance(entity, Entity)
+
+    checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
+    if not checksum:
+        # print(f"Cannot find Usage entity hash {revision}:{entity.path}")
+        return None
+
+    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
+
+    if isinstance(entity, Collection):
+        new_entity = Collection(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        for child in entity.members:
+            new_child = _convert_usage_entity(child, revision, activity_id, client)
+            if not new_child:
+                continue
+            new_entity.members.append(new_child)
+    else:
+        new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+
+    assert type(new_entity) is type(entity)
+
+    return new_entity
+
+
+def _convert_generation_entity(entity: Entity, revision, activity_id, client) -> Union[Entity, None]:
+    """Convert an Entity to one with proper metadata.
+
+    For Collections, add members that are modified in the same commit as revision.
+    """
+    assert isinstance(entity, Entity)
+
+    entity_commit = client.find_previous_commit(paths=entity.path, revision=revision)
+    if entity_commit.hexsha != revision:
+        # print(f"Entity {entity._id} was not modified in its parent commit: {revision}")
+        return None
+
+    checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
+    if not checksum:
+        # print(f"Cannot find Generation entity hash {revision}/{entity.path}")
+        return None
+
+    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
+
+    if isinstance(entity, Collection):
+        new_entity = Collection(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        for child in entity.members:
+            new_child = _convert_generation_entity(child, revision, activity_id, client)
+            if not new_child:
+                continue
+            new_entity.members.append(new_child)
+    else:
+        new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+
+    assert type(new_entity) is type(entity)
+
+    return new_entity
 
 
 def _convert_invalidated_entity(entity: Entity, activity_id, client) -> Union[Entity, None]:
@@ -287,120 +324,6 @@ def _convert_invalidated_entity(entity: Entity, activity_id, client) -> Union[En
     assert type(new_entity) is type(entity)
 
     return new_entity
-
-
-def _create_usage_entity(entity: Entity, revision, activity_id, client) -> Union[Entity, None]:
-    """Convert an Entity to one with proper metadata."""
-    assert isinstance(entity, Entity)
-
-    checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
-    if not checksum:
-        print(f"Cannot find Usage entity hash {revision}:{entity.path}")
-        return None
-
-    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-    # NOTE: commit_sha is the commit that the root entity was modified and not the commit that the entity was modified.
-    cls: type = Collection if isinstance(entity, Collection) else Entity
-    new_entity = cls(id=id_, checksum=checksum, path=entity.path, project=entity._project)
-    assert type(new_entity) is type(entity)
-
-    return new_entity
-
-
-def _create_usage_collection(collection: Collection, revision, activity_id, client) -> List[Entity]:
-    """Return list of all sub-entities that existed in the same commit as the collection or before it."""
-    assert isinstance(collection, Collection)
-
-    entities = []
-
-    for entity in collection.members:
-        new_entity = _create_usage_entity(entity=entity, revision=revision, activity_id=activity_id, client=client)
-        if not new_entity:
-            continue
-        entities.append(new_entity)
-
-        if isinstance(entity, Collection):
-            entities += _create_usage_collection(
-                collection=entity, revision=revision, activity_id=activity_id, client=client
-            )
-
-    return entities
-
-
-def _convert_generation_entity(entity: Entity, revision, activity_id, client) -> List[Entity]:
-    """Convert an Entity to one with proper metadata.
-
-    If entity is a Collection, return list of all sub-entities that are modified in the same commit as the entity.
-    """
-    assert isinstance(entity, Entity)
-
-    entities = []
-
-    entity_commit = client.find_previous_commit(paths=entity.path, revision=revision)
-    if entity_commit.hexsha == revision:
-        checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
-        if not checksum:
-            print(f"Cannot find Generation entity hash {revision}/{entity.path}")
-            return []
-
-        id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-        cls: type = Collection if isinstance(entity, Collection) else Entity
-        new_entity = cls(id=id_, checksum=checksum, path=entity.path, project=entity._project)
-        assert type(new_entity) is type(entity)
-
-        entities.append(new_entity)
-    else:
-        print(f"Entity {entity._id} was not modified in its parent commit: {revision}")
-
-    # NOTE: Even if entity is not modified in the `revision`, it might have sub-entities that are modified in `revision`
-    if isinstance(entity, Collection):
-        for sub_entity in entity.members:
-            entities += _convert_generation_entity(
-                entity=sub_entity, revision=revision, activity_id=activity_id, client=client
-            )
-
-    return entities
-
-
-def _create_generation_entity(entity: Entity, revision, activity_id, client) -> Union[Entity, None]:
-    """Convert an Entity to one with proper metadata."""
-    assert isinstance(entity, Entity)
-
-    checksum = _get_object_hash(revision=revision, path=entity.path, client=client)
-    if not checksum:
-        print(f"Cannot find Generation entity hash {revision}:{entity.path}")
-        return None
-
-    id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-    cls: type = Collection if isinstance(entity, Collection) else Entity
-    new_entity = cls(id=id_, checksum=checksum, path=entity.path, project=entity._project)
-    assert type(new_entity) is type(entity)
-
-    return new_entity
-
-
-def _create_generation_collection(collection: Collection, revision, activity_id, client) -> List[Entity]:
-    """Return list of all sub-entities that are modified in the same commit as the collection."""
-    assert isinstance(collection, Collection)
-
-    entities = []
-
-    for entity in collection.members:
-        entity_commit = client.find_previous_commit(paths=entity.path, revision=revision)
-        if entity_commit.hexsha == revision:
-            new_entity = _create_generation_entity(entity, revision, activity_id, client)
-            if not new_entity:
-                continue
-            entities.append(new_entity)
-        else:
-            print(f"Entity {entity._id} was not modified in its parent commit: {revision}")
-
-        # NOTE: Even if entity is not modified in the `revision`, it might have sub-entities that are modified in
-        # `revision`.
-        if isinstance(entity, Collection):
-            entities += _create_generation_collection(entity, revision, activity_id, client)
-
-    return entities
 
 
 def _generate_entity_id(entity_checksum, path, activity_id):
@@ -450,10 +373,14 @@ class ActivityCollection:
             # Use Plan subprocesses to get activities because it is guaranteed to have correct order
             sorted_ids = [s.process._id for s in activity_run.association.plan.subprocesses]
             activities = []
+            # NOTE: it's possible to have subprocesses with similar ids but it does not matter since they have the same
+            # plan
+            # TODO: Remove these redundant subprocesses
             for id_ in sorted_ids:
                 for s in activity_run.subprocesses.values():
                     if s.association.plan._id == id_:
                         activities.append(s)
+                        break
             assert len(activities) == len(activity_run.subprocesses)
             return activities
 
@@ -471,7 +398,7 @@ class ActivityCollection:
                 assert len(run.subprocesses) == 1, f"Run in ProcessRun has multiple steps: {run._id}"
                 run = run.subprocesses[0]
 
-            plan = Plan.from_run(run=run, name=None)
+            plan = Plan.from_run(run=run, name=None, client=client)
             plan = dependency_graph.find_similar_plan(plan) or plan
             dependency_graph.add(plan)
 

@@ -55,6 +55,8 @@ def generate(client, force):
     n_commits = len(commits)
     commits = reversed(commits)
 
+    # commits = list(commits)[2600:]
+
     dependency_graph = DependencyGraph.from_json(client.dependency_graph_path)
     order = 1
     client.provenance_path.mkdir(exist_ok=True)
@@ -73,12 +75,12 @@ def generate(client, force):
                 continue
 
             # Do not process if a converted file exists
-            target_path = client.provenance_path / f"{os.path.basename(path)}.json"
+            target_path = client.provenance_path / f"{Path(path).stem}.json"
             if target_path.exists() and not force:
                 # TODO: update order
                 continue
 
-            print(f"\rProcessing commits {n}/{n_commits} workflow file: {os.path.basename(path)}\r", file=sys.stderr)
+            # print(f"\rProcessing commits {n}/{n_commits} workflow file: {os.path.basename(path)}\r", file=sys.stderr)
 
             workflow = ActivityRun.from_yaml(path=path, client=client)
             activities = ActivityCollection.from_activity_run(workflow, dependency_graph, client, first_order=order)
@@ -97,35 +99,51 @@ def generate(client, force):
 def status(ctx, client, paths):
     r"""Equivalent of `renku status`."""
     with measure("LOADED"):
-        provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
+        graph = ProvenanceGraph.to_graph(client.provenance_path)
 
-    use_sparql = False
+    with measure("GRAPH QUERIED"):
+        result = graph.query(ALL_USAGES)
 
-    if use_sparql:
-        with measure("GRAPH GENERATED"):
-            graph = provenance_graph.to_conjunctive_graph()
+    with measure("CALCULATE RESULTS"):
+        print("RESULTS", len(result))
+        latest = {}
 
-        with measure("GRAPH QUERIED"):
-            result = graph.query(ALL_USAGES)
+        for path, checksum, order in result:
+            max_order, _ = latest.get(path, (-1, -1))
+            if int(order) > max_order:
+                latest[path] = (int(order), checksum)
 
-            latest = {}
+        for path in latest.keys():
+            if not Path(path).exists():
+                print(path)
 
-            for path, checksum, order in result:
-                max_order, _ = latest.get(path, (-1, -1))
-                if int(order) > max_order:
-                    latest[path] = (int(order), checksum)
-    else:
-        with measure("CALCULATE RESULTS"):
-            latest = {}
-
-            for activity in provenance_graph.activities.values():
-                for e in activity.qualified_usage:
-                    max_order, _ = latest.get(e.path, (-1, -1))
-                    if int(activity.order) > max_order:
-                        latest[e.path] = (activity.order, e.checksum)
-
-    # for path in latest:
-    #     order, checksum = latest.get(path, (-1, -1))
-    #     print(path, checksum, order)
-
+    # use_sparql = False
+    #
+    # if use_sparql:
+    #     with measure("GRAPH GENERATED"):
+    #         graph = provenance_graph.to_conjunctive_graph()
+    #
+    #     with measure("GRAPH QUERIED"):
+    #         result = graph.query(ALL_USAGES)
+    #
+    #         latest = {}
+    #
+    #         for path, checksum, order in result:
+    #             max_order, _ = latest.get(path, (-1, -1))
+    #             if int(order) > max_order:
+    #                 latest[path] = (int(order), checksum)
+    # else:
+    #     with measure("CALCULATE RESULTS"):
+    #         latest = {}
+    #
+    #         for activity in provenance_graph.activities.values():
+    #             for e in activity.qualified_usage:
+    #                 max_order, _ = latest.get(e.path, (-1, -1))
+    #                 if int(activity.order) > max_order:
+    #                     latest[e.path] = (activity.order, e.checksum)
+    #
+    # # for path in latest:
+    # #     order, checksum = latest.get(path, (-1, -1))
+    # #     print(path, checksum, order)
+    #
     print(len(latest))

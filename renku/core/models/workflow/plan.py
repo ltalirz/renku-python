@@ -36,6 +36,7 @@ from renku.core.models.workflow.parameters import (
     CommandOutputTemplateSchema,
 )
 from renku.core.models.workflow.run import Run
+from renku.core.utils.urls import get_host
 
 
 class Plan:
@@ -64,12 +65,12 @@ class Plan:
         return PlanSchema(flattened=True).load(data)
 
     @classmethod
-    def from_run(cls, run: Run, name):
+    def from_run(cls, run: Run, name, client):
         """Create a Plan from a Run."""
         assert not run.subprocesses, f"Cannot create from a Run with subprocesses: {run._id}"
 
         uuid_ = _extract_run_uuid(run._id)
-        plan_id = cls.generate_id(uuid_=uuid_)
+        plan_id = cls.generate_id(client=client, uuid_=uuid_)
 
         inputs = [_convert_command_input(i, plan_id) for i in run.inputs]
         outputs = [_convert_command_output(o, plan_id) for o in run.outputs]
@@ -85,11 +86,11 @@ class Plan:
         )
 
     @staticmethod
-    def generate_id(uuid_=None):
+    def generate_id(client, uuid_):
         """Generate an identifier for the plan."""
         uuid_ = uuid_ or str(uuid.uuid4())
-        # TODO: use run's domain instead of localhost
-        return urllib.parse.urljoin("https://localhost", pathlib.posixpath.join("plans", uuid_))
+        host = get_host(client)
+        return urllib.parse.urljoin(f"https://{host}", pathlib.posixpath.join("plans", uuid_))
 
     def to_jsonld(self):
         """Create JSON-LD."""
