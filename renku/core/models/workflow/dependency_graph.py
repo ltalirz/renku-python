@@ -21,6 +21,7 @@ from collections import deque
 from pathlib import Path
 from typing import Union
 
+import networkx
 from marshmallow import EXCLUDE
 
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
@@ -45,8 +46,10 @@ class DependencyGraph:
         """Initialized."""
         self._plans = plans or []
         self._path = None  # TODO: Calamus complains if this is in parameters list
-        self._nodes = []
-        self._heads = []
+
+        self._graph = networkx.DiGraph()
+        self._graph.add_nodes_from(self._plans)
+        self._connect_nodes()
 
     def add(self, plan: Plan) -> Plan:
         """Add a plan to the graph if a similar plan does not exists."""
@@ -57,6 +60,8 @@ class DependencyGraph:
         assert not any([p for p in self._plans if p.name == plan.name]), f"Duplicate name {plan.id_}, {plan.name}"
         assert not any([p for p in self._plans if p.id_ == plan.id_]), f"Identifier exists {plan.id_}"
         self._add_helper(plan)
+
+        assert networkx.algorithms.dag.is_directed_acyclic_graph(self._graph)
 
         return plan
 
@@ -69,39 +74,39 @@ class DependencyGraph:
     def _add_helper(self, plan: Plan):
         self._plans.append(plan)
 
-        node = Node(plan=plan)
-        self._nodes.append(node)
-        self._connect_node_to_others(node=node)
-
-        self._heads = [n for n in self._nodes if not n.parents]
-        assert self._heads, "Graph has cycles."  # TODO: Work around this situation
+        self._graph.add_node(plan)
+        self._connect_node_to_others(node=plan)
 
     def _connect_nodes(self):
-        self._nodes = [Node(plan=plan) for plan in self._plans]
-
-        for node in self._nodes:
+        for node in self._graph:
             self._connect_node_to_others(node)
 
-        self._heads = [n for n in self._nodes if not n.parents]
-        assert self._heads, "Graph has cycles."  # TODO: Work around this situation
-
-    def _connect_node_to_others(self, node: Node):
-        for other_node in self._nodes:
+    def _connect_node_to_others(self, node: Plan):
+        for other_node in self._graph:
             if self._is_connected(from_=node, to_=other_node):
-                node.children.add(other_node)
-                other_node.parents.add(node)
+                self._graph.add_edge(node, other_node, name=node.name)
             if self._is_connected(from_=other_node, to_=node):
-                other_node.children.add(node)
-                node.parents.add(other_node)
+                self._graph.add_edge(other_node, node, name=node.name)
 
     @staticmethod
-    def _is_connected(from_: Node, to_: Node):
-        for o in from_.plan.outputs:
-            for i in to_.plan.inputs:
+    def _is_connected(from_: Plan, to_: Plan):
+        for o in from_.outputs:
+            for i in to_.inputs:
                 if DependencyGraph._is_super_path(o.produces, i.consumes):
                     return True
 
         return False
+
+    def visualize_graph(self):
+        networkx.draw(self._graph, with_labels=True, labels={n:n.name for n in self._graph.nodes})
+
+        # pos = networkx.spring_layout(self._graph)
+        # # Add edges with path attribute: add_edge(node, other_node, path='data/covid')
+        # edge_labels = networkx.get_edge_attributes(self._graph, 'path')
+        # networkx.draw_networkx_edge_labels(self._graph, pos=pos, edge_labels=edge_labels)
+
+    def to_png(self, path):
+        networkx.drawing.nx_pydot.to_pydot(self._graph).write_png(path)
 
     @staticmethod
     def _is_super_path(parent, child):
@@ -109,10 +114,11 @@ class DependencyGraph:
         child = Path(child).resolve()
         return parent == child or parent in child.parents
 
-    def find_dependent_paths(self, path):
+    def get_dependent_paths(self, path):
         nodes = deque()
-        for node in self._nodes:
-            if any(self._is_super_path(path, p.consumes) for p in node.plan.inputs):
+        node: Plan
+        for node in self._graph:
+            if any(self._is_super_path(path, p.consumes) for p in node.inputs):
                 nodes.append(node)
 
         paths = set()
@@ -120,15 +126,12 @@ class DependencyGraph:
         # TODO: This loops infinitely if there is a cycle in the graph
         while nodes:
             node = nodes.popleft()
-            outputs_paths = [o.produces for o in node.plan.outputs]
+            outputs_paths = [o.produces for o in node.outputs]
             paths.update(outputs_paths)
 
-            nodes.extend(node.children)
+            nodes.extend(self._graph.successors(node))
 
         return paths
-
-
-
 
     @classmethod
     def from_json(cls, path):
@@ -137,7 +140,6 @@ class DependencyGraph:
             with open(path) as file_:
                 data = json.load(file_)
                 self = cls.from_jsonld(data=data)
-                self._connect_nodes()
         else:
             self = DependencyGraph(plans=[])
 

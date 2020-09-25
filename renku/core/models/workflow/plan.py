@@ -53,6 +53,8 @@ class Plan:
         self.outputs = outputs or []
         self.success_codes = success_codes or []
 
+    def __repr__(self):
+        return self.name
 
     @classmethod
     def from_jsonld(cls, data):

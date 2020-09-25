@@ -18,6 +18,7 @@
 """PoC command for testing the new graph design."""
 import os
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import click
@@ -73,7 +74,7 @@ def generate(client, force):
     dependency_graph = DependencyGraph.from_json(client.dependency_graph_path)
     provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
 
-    client.provenance_path.mkdir(exist_ok=True)
+    # client.provenance_path.mkdir(exist_ok=True)
 
     for n, commit in enumerate(commits):
         print(f"\rProcessing commits {n}/{n_commits}\r", end="", file=sys.stderr)
@@ -114,9 +115,25 @@ def status(ctx, client, paths):
         pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
         usages = pg.get_latest_usages_path_and_checksum()
 
-    with measure("CALCULATE RESULTS"):
+    print(usages)
+
+    with measure("CALCULATE MODIFIED"):
         modified, deleted = _get_modified_paths(client=client, path_and_checksum=usages)
 
+    if not modified and not deleted:
+        print("OK")
+
+    stales = defaultdict(set)
+
+    with measure("CALCULATE UPDATES"):
+        dg = DependencyGraph.from_json(client.dependency_graph_path)
+        for path in modified:
+            paths = dg.get_dependent_paths(path)
+            for p in paths:
+                stales[p].add(path)
+
+    print(f"Updates: {len(stales)}", "".join(sorted([f"\n\t{k}: {', '.join(sorted(v))}" for k, v in stales.items()])))
+    print()
     print(f"Modified: {len(modified)}", "".join(sorted([f"\n\t{e}" for e in modified])))
     print()
     print(f"Deleted: {len(deleted)}", "".join(sorted([f"\n\t{e}" for e in deleted])))
@@ -127,7 +144,7 @@ def _get_modified_paths(client, path_and_checksum):
     deleted = set()
     for path, checksum in path_and_checksum:
         try:
-            current_checksum = client.repo.git.rev_parse(str(path))
+            current_checksum = client.repo.git.rev_parse(f"HEAD:{str(path)}")
         except GitCommandError:
             deleted.add(path)
         else:
