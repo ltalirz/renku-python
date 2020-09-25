@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import click
-from git import NULL_TREE
+from git import GitCommandError, NULL_TREE
 
 from renku.core.commands.client import pass_local_client
 from renku.core.management.config import RENKU_HOME
@@ -110,52 +110,29 @@ def generate(client, force):
 @click.pass_context
 def status(ctx, client, paths):
     r"""Equivalent of `renku status`."""
-    with measure("LOADED"):
-        graph = ProvenanceGraph.to_graph(client.provenance_path)
-
-    with measure("GRAPH QUERIED"):
-        result = graph.query(ALL_USAGES)
+    with measure("BUILD AND QUERY GRAPH"):
+        pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
+        usages = pg.get_latest_usages_path_and_checksum()
 
     with measure("CALCULATE RESULTS"):
-        print("RESULTS", len(result))
-        latest = {}
+        modified, deleted = _get_modified_paths(client=client, path_and_checksum=usages)
 
-        for path, checksum, order in result:
-            max_order, _ = latest.get(path, (-1, -1))
-            if int(order) > max_order:
-                latest[path] = (int(order), checksum)
+    print(f"Modified: {len(modified)}", "".join(sorted([f"\n\t{e}" for e in modified])))
+    print()
+    print(f"Deleted: {len(deleted)}", "".join(sorted([f"\n\t{e}" for e in deleted])))
 
-        for path in latest.keys():
-            if not Path(path).exists():
-                print(path)
 
-    # use_sparql = False
-    #
-    # if use_sparql:
-    #     with measure("GRAPH GENERATED"):
-    #         graph = provenance_graph.to_conjunctive_graph()
-    #
-    #     with measure("GRAPH QUERIED"):
-    #         result = graph.query(ALL_USAGES)
-    #
-    #         latest = {}
-    #
-    #         for path, checksum, order in result:
-    #             max_order, _ = latest.get(path, (-1, -1))
-    #             if int(order) > max_order:
-    #                 latest[path] = (int(order), checksum)
-    # else:
-    #     with measure("CALCULATE RESULTS"):
-    #         latest = {}
-    #
-    #         for activity in provenance_graph.activities.values():
-    #             for e in activity.qualified_usage:
-    #                 max_order, _ = latest.get(e.path, (-1, -1))
-    #                 if int(activity.order) > max_order:
-    #                     latest[e.path] = (activity.order, e.checksum)
-    #
-    # # for path in latest:
-    # #     order, checksum = latest.get(path, (-1, -1))
-    # #     print(path, checksum, order)
-    #
-    print(len(latest))
+def _get_modified_paths(client, path_and_checksum):
+    modified = set()
+    deleted = set()
+    for path, checksum in path_and_checksum:
+        try:
+            current_checksum = client.repo.git.rev_parse(str(path))
+        except GitCommandError:
+            deleted.add(path)
+        else:
+            if current_checksum != checksum:
+                modified.add(path)
+
+    return modified, deleted
+
