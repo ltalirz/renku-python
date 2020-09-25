@@ -18,30 +18,72 @@
 """Represent dependency graph."""
 import json
 from pathlib import Path
+from typing import Union
 
-import attr
 from marshmallow import EXCLUDE
 from rdflib import ConjunctiveGraph
 
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
-from renku.core.models.provenance.activity import Activity, ActivitySchema
+from renku.core.models.provenance.activity import Activity, ActivitySchema, ActivityCollection
 from renku.core.utils.contexts import measure
 
 
-@attr.s(eq=False, order=False)
 class ProvenanceGraph:
     """A graph of all executions (Activities)."""
 
-    path = attr.ib(default=None, init=False, type=str)
-    _nodes = attr.ib(factory=list, kw_only=True)
-    _order = attr.ib(default=None, init=False)
-    _files = attr.ib(factory=list, kw_only=True)
-
-    def __attrs_post_init__(self):
+    def __init__(self, activities=None):
         """Set uninitialized properties."""
-        self._nodes = self._nodes or []
-        self._files = self._files or {}
-        self._order = 1 if len(self._nodes) == 0 else max([n.order for n in self._nodes]) + 1
+        self._activities = activities or []
+        self._path = None  # TODO: Calamus complains if this is in parameters list
+        # self._activities_order = activities_order or []
+        self._order = 1 if len(self._activities) == 0 else max([a.order for a in self._activities]) + 1
+        self._graph = None
+        self._loaded = False
+
+    # @property
+    # def provenance_files_path(self):
+    #     """Return a path where all provenance files (i.e. ActivityCollections) are saved."""
+    #     return Path(self._path).parent / "provenance"
+
+    @property
+    def activities(self):
+        """Return a map from order to activity."""
+        return {a.order: a for a in self._activities}
+
+    def add(self, node: Union[Activity, ActivityCollection]):
+        """Add an Activity/ActivityCollection to the graph."""
+        assert self._loaded
+
+        # TODO: Check activities with similar identifier does not exist.
+        activity_collection = node if isinstance(node, ActivityCollection) else ActivityCollection(activities=[node])
+        # filename = str(Path(filename).name)
+        # path = self.provenance_files_path / filename
+        # activity_collection.to_json(path=path)
+
+        for activity in activity_collection._activities:
+            activity.order = self._order
+            self._order += 1
+            self._activities.append(activity)
+
+    @classmethod
+    def from_json(cls, path, lazy=False):
+        """Return an instance from a YAML file."""
+        if Path(path).exists():
+            if not lazy:
+                with open(path) as file_:
+                    data = json.load(file_)
+                    self = cls.from_jsonld(data=data)
+                    self._activities.sort(key=lambda e: e.order)
+            else:
+                self = ProvenanceGraph(activities=[])
+                self._loaded = False
+        else:
+            self = ProvenanceGraph(activities=[])
+            self._loaded = True
+
+        self._path = path
+
+        return self
 
     @classmethod
     def from_jsonld(cls, data):
@@ -51,75 +93,49 @@ class ProvenanceGraph:
         elif not isinstance(data, list):
             raise ValueError(data)
 
-        return ProvenanceGraphSchema(flattened=True).load(data)
-
-    @classmethod
-    def from_json(cls, path):
-        """Return an instance from a YAML file."""
-        # TODO: we should not write inside a read
-        if Path(path).exists():
-            with open(path) as file_:
-                data = json.load(file_)
-            self = cls.from_jsonld(data=data)
-            self.path = path
-        else:
-            self = ProvenanceGraph(nodes=[])
-            self.path = path
-            self.to_json()
+        self = ProvenanceGraphSchema(flattened=True).load(data)
+        self._loaded = True
 
         return self
 
-    @property
-    def activities(self):
-        """Return a map from order to activity."""
-        return {n.order: n for n in self._nodes}
-
-    def add(self, node: Activity):
-        """Add a node to the graph."""
-        if node.order is None:
-            node.order = self._order
-            self._order += 1
-
-        self._nodes.append(node)
-
-    def add_file(self, file_, order):
-        self._files[order] = file_
-
-    def as_jsonld(self):
+    def to_jsonld(self):
         """Create JSON-LD."""
         return ProvenanceGraphSchema(flattened=True).dump(self)
 
-    def to_json(self):
-        """Write an instance to YAML file."""
-        data = self.as_jsonld()
-        with open(self.path, "w", encoding="utf-8") as file_:
+    def to_json(self, path=None):
+        """Write an instance to file."""
+        path = path or self._path
+        data = self.to_jsonld()
+        with open(path, "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
-    def to_conjunctive_graph(self):
+    def to_rdf_graph(self):
         """Create an RDFLib ConjunctiveGraph."""
-        import json
-        import pyld
-        from rdflib.plugin import Parser, register
+        # import json
+        # import pyld
+        # from rdflib.plugin import Parser, register
+        # output = pyld.jsonld.expand([a.as_jsonld() for a in self._activities])
+        # data = json.dumps(output, indent=2)
+        # register("json-ld", Parser, "rdflib_jsonld.parser", "JsonLDParser")
 
-        output = pyld.jsonld.expand([action.as_jsonld() for action in self._nodes])
-        data = json.dumps(output, indent=2)
+        with measure("GRAPH"):
+            if self._graph:
+                return self._graph
 
-        register("json-ld", Parser, "rdflib_jsonld.parser", "JsonLDParser")
+            self._graph = ConjunctiveGraph().parse(location=str(self._path), format="json-ld")
 
-        graph = ConjunctiveGraph().parse(data=data, format="json-ld")
+            self._graph.bind("prov", "http://www.w3.org/ns/prov#")
+            self._graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
+            self._graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
+            self._graph.bind("wf", "http://www.w3.org/2005/01/wf/flow#")
+            self._graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
+            self._graph.bind("schema", "http://schema.org/")
+            self._graph.bind("renku", "https://swissdatasciencecenter.github.io/renku-ontology#")
 
-        graph.bind("prov", "http://www.w3.org/ns/prov#")
-        graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
-        graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
-        graph.bind("wf", "http://www.w3.org/2005/01/wf/flow#")
-        graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
-        graph.bind("schema", "http://schema.org/")
-        graph.bind("renku", "https://swissdatasciencecenter.github.io/renku-ontology#")
-
-        return graph
+        return self._graph
 
     @classmethod
-    def to_graph(cls, provenance_path):
+    def create_rdf_graph_from_files(cls, provenance_path):
         """Create an rdflib.ConjunctiveGraph from all files."""
         graph = ConjunctiveGraph()
 
@@ -142,9 +158,9 @@ class ProvenanceGraph:
     def convert_activity_to_json(path, client=None, commit=None):
         """Read an Activity from YAML and write it as JSON."""
         import json
-        from renku.core.models.provenance.activities import Activity
+        from renku.core.models.provenance.activities import Activity as ActivityRun
 
-        activity = Activity.from_yaml(path=path, client=client, commit=commit)
+        activity = ActivityRun.from_yaml(path=path, client=client, commit=commit)
         data = activity.as_jsonld()
 
         with open(f"{path}.json", "w", encoding="utf-8") as file_:
@@ -154,8 +170,6 @@ class ProvenanceGraph:
 class ProvenanceGraphSchema(JsonLDSchema):
     """ProvenanceGraph schema."""
 
-    # TODO: use better property names for graph and nodes
-
     class Meta:
         """Meta class."""
 
@@ -163,7 +177,7 @@ class ProvenanceGraphSchema(JsonLDSchema):
         model = ProvenanceGraph
         unknown = EXCLUDE
 
-    _nodes = Nested(schema.hasPart, ActivitySchema, init_name="nodes", many=True, missing=None)
+    _activities = Nested(schema.hasPart, ActivitySchema, init_name="activities", many=True, missing=None)
 
 
 ALL_USAGES = """

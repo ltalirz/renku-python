@@ -55,10 +55,24 @@ def generate(client, force):
     n_commits = len(commits)
     commits = reversed(commits)
 
-    # commits = list(commits)[2600:]
+    # commits = list(commits)[2810:]
+
+    if force:
+        try:
+            client.dependency_graph_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            client.provenance_graph_path.unlink()
+        except FileNotFoundError:
+            pass
+    else:
+        if client.dependency_graph_path.exists() or client.provenance_graph_path.exists():
+            raise RuntimeError(f"Graph files exist. Use --force to regenerate the graph.")
 
     dependency_graph = DependencyGraph.from_json(client.dependency_graph_path)
-    order = 1
+    provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
+
     client.provenance_path.mkdir(exist_ok=True)
 
     for n, commit in enumerate(commits):
@@ -74,22 +88,20 @@ def generate(client, force):
             if not path.startswith(".renku/workflow") or not path.endswith(".yaml"):
                 continue
 
-            # Do not process if a converted file exists
-            target_path = client.provenance_path / f"{Path(path).stem}.json"
-            if target_path.exists() and not force:
-                # TODO: update order
-                continue
+            # target_path = client.provenance_path / f"{Path(path).stem}.json"
+            # if target_path.exists():
+            #     raise RuntimeError(f"Target file exists: {target_path}. Use --force to regenerate the graph.")
 
             # print(f"\rProcessing commits {n}/{n_commits} workflow file: {os.path.basename(path)}\r", file=sys.stderr)
 
             workflow = ActivityRun.from_yaml(path=path, client=client)
-            activities = ActivityCollection.from_activity_run(workflow, dependency_graph, client, first_order=order)
+            activity_collection = ActivityCollection.from_activity_run(workflow, dependency_graph, client)
 
-            activities.to_json(path=target_path)
-
-            order = activities.max_order + 1
+            # activity_collection.to_json(path=target_path)
+            provenance_graph.add(activity_collection)
 
     dependency_graph.to_json()
+    provenance_graph.to_json()
 
 
 @graph.command()

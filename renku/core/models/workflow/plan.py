@@ -106,6 +106,7 @@ class Plan:
         def get_arguments(plan):
             return {(a.position, a.prefix, a.value) for a in plan.arguments}
 
+        # TODO: Check order of inputs/outputs/parameters as well after sorting by position
         return (
             self.command == other.command
             and set(self.success_codes) == set(other.success_codes)

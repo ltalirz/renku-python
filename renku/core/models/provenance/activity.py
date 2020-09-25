@@ -28,7 +28,6 @@ from marshmallow import EXCLUDE
 
 from renku.core.models.calamus import JsonLDSchema, Nested, fields, prov, renku, schema
 from renku.core.models.entities import Entity, EntitySchema, Collection
-from renku.core.models.projects import ProjectSchema
 from renku.core.models.provenance.activities import Activity as ActivityRun, ProcessRun, WorkflowRun
 from renku.core.models.provenance.agents import PersonSchema, SoftwareAgentSchema
 from renku.core.models.provenance.qualified import (
@@ -56,8 +55,7 @@ class Activity:
         generated=None,
         invalidated=None,
         order=None,
-        path=None,
-        project=None,
+        # project=None,  # TODO: project._id get messed up when generating and then running commands
         qualified_usage=None,
         started_at_time=None,
     ):
@@ -69,8 +67,7 @@ class Activity:
         self.id_ = id_
         self.invalidated = invalidated
         self.order = order
-        self.path = str(path) if path else None
-        self.project = project
+        # self.project = project
         self.qualified_usage = qualified_usage
         self.started_at_time = started_at_time
         # TODO: _was_informed_by = attr.ib(kw_only=True,)
@@ -78,44 +75,21 @@ class Activity:
         # TODO: influenced = attr.ib(kw_only=True)
 
     @classmethod
-    def from_process_run(cls, process_run: ProcessRun, plan: Plan, client, path=None, order=None):
+    def from_process_run(cls, process_run: ProcessRun, plan: Plan, client, order=None):
         """Create an Activity from a ProcessRun."""
+        # TODO: make id generation idempotent
         activity_id = Activity.generate_id(client)
-        # if path:
-        #     path = str((client.path / path).relative_to(client.path))
 
         association = Association(agent=process_run.association.agent, id=f"{activity_id}/association", plan=plan)
 
         # FIXME: The same entity can have the same id during different times in its lifetime (e.g. different commit_sha,
         # but the same content). When it gets flattened, some fields will have multiple values which will cause an error
-        # during deserialization. This should be fixed in Calamus by creating different ids for such an entity. Also we
-        # should store those information in the Generation object. For now, we store and reuse the same entity object
-        # for all entities with the same _id.
+        # during deserialization. Make sure that no such Entity attributes exists (store those information in the
+        # Generation object).
+        # TODO: This should be fixed in Calamus by creating different ids for such an entity.
 
-        # qualified_usage = []
-        # for run_usage in process_run.qualified_usage:
-        #     usages = _convert_usage(run_usage, activity_id, client)
-        #     for usage in usages:
-        #         usage.entity = all_entities.setdefault(usage.entity._id, usage.entity)
-        #
-        #         duplicate = [u for u in qualified_usage if u._id == usage._id]
-        #         if not duplicate:
-        #             qualified_usage.append(usage)
-        #         else:
-        #             assert usage.role == duplicate[0].role
         qualified_usage = _convert_qualified_usage(process_run.qualified_usage, activity_id, client)
 
-        # generated = []
-        # for run_generation in process_run.generated:
-        #     generations = _convert_generation(run_generation, activity_id, client)
-        #     for generation in generations:
-        #         generation.entity = all_entities.setdefault(generation.entity._id, generation.entity)
-        #
-        #         duplicate = [g for g in generated if g._id == generation._id]
-        #         if not duplicate:
-        #             generated.append(generation)
-        #         else:
-        #             assert generation.role == duplicate[0].role
         generated = _convert_generated(process_run.generated, activity_id, client)
 
         invalidated = [_convert_invalidated_entity(e, activity_id, client) for e in process_run.invalidated]
@@ -128,8 +102,7 @@ class Activity:
             id_=activity_id,
             invalidated=invalidated,
             order=order,
-            path=path,
-            project=process_run._project,
+            # project=process_run._project,
             qualified_usage=qualified_usage,
             started_at_time=process_run.started_at_time,
         )
@@ -178,6 +151,7 @@ def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) 
         if isinstance(entity, Collection):
             collections.append((entity, usage.role))
 
+    # Create Usage objects for sub-files/directories
     # while collections:
     #     collection, role = collections.popleft()
     #     for entity in collection.members:
@@ -221,6 +195,7 @@ def _convert_generated(generated: List[Generation], activity_id, client) -> List
         if isinstance(entity, Collection):
             collections.append((entity, generation.role))
 
+    # Create Generation objects for sub-files/directories
     # while collections:
     #     collection, role = collections.popleft()
     #     for entity in collection.members:
@@ -255,14 +230,14 @@ def _convert_usage_entity(entity: Entity, revision, activity_id, client) -> Unio
     id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
 
     if isinstance(entity, Collection):
-        new_entity = Collection(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        new_entity = Collection(id=id_, checksum=checksum, path=entity.path)  # , project=entity._project)
         for child in entity.members:
             new_child = _convert_usage_entity(child, revision, activity_id, client)
             if not new_child:
                 continue
             new_entity.members.append(new_child)
     else:
-        new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        new_entity = Entity(id=id_, checksum=checksum, path=entity.path)  # , project=entity._project)
 
     assert type(new_entity) is type(entity)
 
@@ -289,14 +264,14 @@ def _convert_generation_entity(entity: Entity, revision, activity_id, client) ->
     id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
 
     if isinstance(entity, Collection):
-        new_entity = Collection(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        new_entity = Collection(id=id_, checksum=checksum, path=entity.path)  # , project=entity._project)
         for child in entity.members:
             new_child = _convert_generation_entity(child, revision, activity_id, client)
             if not new_child:
                 continue
             new_entity.members.append(new_child)
     else:
-        new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+        new_entity = Entity(id=id_, checksum=checksum, path=entity.path)  # , project=entity._project)
 
     assert type(new_entity) is type(entity)
 
@@ -304,9 +279,9 @@ def _convert_generation_entity(entity: Entity, revision, activity_id, client) ->
 
 
 def _convert_invalidated_entity(entity: Entity, activity_id, client) -> Union[Entity, None]:
-    """Convert a CommandInput to CommandInputTemplate."""
+    """Convert an Entity to one with proper metadata."""
     assert isinstance(entity, Entity)
-    assert not isinstance(entity, Collection)
+    assert not isinstance(entity, Collection), f"Collection passed as invalidated: {entity._id}"
 
     commit_sha = _extract_commit_sha(entity_id=entity._id)
     commit = client.find_previous_commit(revision=commit_sha, paths=entity.path)
@@ -320,7 +295,7 @@ def _convert_invalidated_entity(entity: Entity, activity_id, client) -> Union[En
             return None
 
     id_ = _generate_entity_id(entity_checksum=checksum, path=entity.path, activity_id=activity_id)
-    new_entity = Entity(id=id_, checksum=checksum, path=entity.path, project=entity._project)
+    new_entity = Entity(id=id_, checksum=checksum, path=entity.path)  # , project=entity._project)
     assert type(new_entity) is type(entity)
 
     return new_entity
@@ -334,12 +309,11 @@ def _generate_entity_id(entity_checksum, path, activity_id):
 
 
 def _get_object_hash(revision, path, client):
-    path = str(path)
     try:
-        return client.repo.git.rev_parse(f"{revision}:{path}")
+        return client.repo.git.rev_parse(f"{revision}:{str(path)}")
     except GitCommandError:
-        # NOTE: it also can be that the file was not there when the command ran but was there when workflows were
-        # migrated. This can happen for usage. Can it also happen for generation?
+        # NOTE: Either the file was not there when the command ran but was there when workflows were  migrated (this
+        # can happen only for Usage) or the project is broken. We assume the former here.
         # TODO: what if the project is broken
         # raise ValueError(f"Cannot get object hash '{revision}:{path}'")
         return None
@@ -359,13 +333,13 @@ def _extract_commit_sha(entity_id: str):
 class ActivityCollection:
     """Equivalent of a workflow file."""
 
-    def __init__(self, activities=None, path=None):
+    def __init__(self, activities=None):
         """Initialize."""
         self._activities = activities or []
-        self._path = path
+        self._path = None  # TODO: Calamus complains if this is in parameters list
 
     @classmethod
-    def from_activity_run(cls, activity_run: ActivityRun, dependency_graph: DependencyGraph, client, first_order: int):
+    def from_activity_run(cls, activity_run: ActivityRun, dependency_graph: DependencyGraph, client):
         """Convert a ProcessRun/WorkflowRun to ActivityCollection."""
 
         def get_process_runs() -> list:
@@ -384,12 +358,9 @@ class ActivityCollection:
             assert len(activities) == len(activity_run.subprocesses)
             return activities
 
-        assert first_order > 0
-
         process_runs = get_process_runs() if isinstance(activity_run, WorkflowRun) else [activity_run]
 
         self = ActivityCollection()
-        order = first_order
 
         for process_run in process_runs:
             assert isinstance(process_run, ProcessRun)
@@ -399,13 +370,9 @@ class ActivityCollection:
                 run = run.subprocesses[0]
 
             plan = Plan.from_run(run=run, name=None, client=client)
-            plan = dependency_graph.find_similar_plan(plan) or plan
-            dependency_graph.add(plan)
+            plan = dependency_graph.add(plan)
 
-            # process_run = run.activity
-
-            activity = Activity.from_process_run(process_run=process_run, plan=plan, client=client, order=order)
-            order += 1
+            activity = Activity.from_process_run(process_run=process_run, plan=plan, client=client)
             self.add(activity)
 
         return self
@@ -470,7 +437,7 @@ class ActivitySchema(JsonLDSchema):
     invalidated = Nested(prov.wasInvalidatedBy, EntitySchema, reverse=True, many=True, missing=None)
     order = fields.Integer(renku.order)
     path = fields.String(prov.atLocation)
-    project = Nested(schema.isPartOf, ProjectSchema, missing=None)
+    # project = Nested(schema.isPartOf, ProjectSchema, missing=None)
     qualified_usage = Nested(prov.qualifiedUsage, UsageSchema, many=True)
     started_at_time = fields.DateTime(prov.startedAtTime, add_value_types=True)
 

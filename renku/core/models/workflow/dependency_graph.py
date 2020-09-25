@@ -18,6 +18,7 @@
 """Represent dependency graph."""
 import json
 from pathlib import Path
+from typing import Union
 
 from marshmallow import EXCLUDE
 
@@ -30,22 +31,28 @@ class DependencyGraph:
 
     # TODO: dependency graph can have cycles in it because up until now there was no check to prevent this
 
-    def __init__(self, nodes=None):
+    def __init__(self, plans=None):
         """Set uninitialized properties."""
-        self._nodes = nodes or []
+        self._plans = plans or []
         self._path = None  # TODO: Calamus complains if this is in parameters list
 
-    def add(self, node: Plan):
-        """Add a node to the graph."""
-        # TODO: Check if a node with the same _id exists and do not add this one
-        # TODO: Check if name is unique
-        self._nodes.append(node)
+    def add(self, plan: Plan) -> Plan:
+        """Add a plan to the graph if a similar plan does not exists."""
+        existing_plan = self._find_similar_plan(plan)
+        if existing_plan:
+            return existing_plan
 
-    def find_similar_plan(self, node: Plan) -> Plan:
-        """Search for a similar node and return it."""
-        for n in self._nodes:
-            if n.is_similar_to(node):
-                return n
+        # TODO: Check if name is unique
+        assert not any([p for p in self._plans if p.id_ == plan.id_]), f"A plan with same identifier exists {plan.id_}"
+        self._plans.append(plan)
+
+        return plan
+
+    def _find_similar_plan(self, plan: Plan) -> Union[Plan, None]:
+        """Search for a similar plan and return it."""
+        for p in self._plans:
+            if p.is_similar_to(plan):
+                return p
 
     @classmethod
     def from_json(cls, path):
@@ -55,7 +62,7 @@ class DependencyGraph:
                 data = json.load(file_)
                 self = cls.from_jsonld(data=data)
         else:
-            self = DependencyGraph(nodes=[])
+            self = DependencyGraph(plans=[])
 
         self._path = path
 
@@ -86,8 +93,6 @@ class DependencyGraph:
 class DependencyGraphSchema(JsonLDSchema):
     """DependencyGraph schema."""
 
-    # TODO: use better property names for graph and nodes
-
     class Meta:
         """Meta class."""
 
@@ -95,4 +100,4 @@ class DependencyGraphSchema(JsonLDSchema):
         model = DependencyGraph
         unknown = EXCLUDE
 
-    _nodes = Nested(schema.hasPart, PlanSchema, init_name="nodes", many=True, missing=None)
+    _plans = Nested(schema.hasPart, PlanSchema, init_name="plans", many=True, missing=None)
