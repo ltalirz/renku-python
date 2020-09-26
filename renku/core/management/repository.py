@@ -103,7 +103,7 @@ class RepositoryApiMixin(GitCore):
     WORKFLOW = "workflow"
     """Directory for storing workflow in Renku."""
 
-    DEPENDENCY_GRAPH = "graph.json"
+    DEPENDENCY_GRAPH = "dependency.json"
     """File for storing dependency graph."""
 
     PROVENANCE = "provenance"

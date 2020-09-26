@@ -151,7 +151,7 @@ def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) 
         if isinstance(entity, Collection):
             collections.append((entity, usage.role))
 
-    # Create Usage objects for sub-files/directories
+    # # Create Usage objects for sub-files/directories
     # while collections:
     #     collection, role = collections.popleft()
     #     for entity in collection.members:
@@ -195,7 +195,7 @@ def _convert_generated(generated: List[Generation], activity_id, client) -> List
         if isinstance(entity, Collection):
             collections.append((entity, generation.role))
 
-    # Create Generation objects for sub-files/directories
+    # # Create Generation objects for sub-files/directories
     # while collections:
     #     collection, role = collections.popleft()
     #     for entity in collection.members:

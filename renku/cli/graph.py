@@ -16,7 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """PoC command for testing the new graph design."""
-import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -27,13 +26,11 @@ from git import GitCommandError, NULL_TREE
 from renku.core.commands.client import pass_local_client
 from renku.core.management.config import RENKU_HOME
 from renku.core.management.repository import RepositoryApiMixin
-from renku.core.models.provenance.activities import Activity as ActivityRun, WorkflowRun
-from renku.core.models.provenance.activity import ActivityCollection, Activity
-from renku.core.models.provenance.provenance_graph import ProvenanceGraph, ALL_USAGES
+from renku.core.models.provenance.activities import Activity as ActivityRun
+from renku.core.models.provenance.activity import ActivityCollection
+from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.workflow.dependency_graph import DependencyGraph
-from renku.core.models.workflow.plan import Plan
 from renku.core.utils.contexts import measure
-
 
 GRAPH_METADATA_PATHS = [
     Path(RENKU_HOME) / Path(RepositoryApiMixin.DEPENDENCY_GRAPH),
@@ -69,7 +66,7 @@ def generate(client, force):
             pass
     else:
         if client.dependency_graph_path.exists() or client.provenance_graph_path.exists():
-            raise RuntimeError(f"Graph files exist. Use --force to regenerate the graph.")
+            raise RuntimeError("Graph files exist. Use --force to regenerate the graph.")
 
     dependency_graph = DependencyGraph.from_json(client.dependency_graph_path)
     provenance_graph = ProvenanceGraph.from_json(client.provenance_graph_path)
@@ -104,52 +101,55 @@ def generate(client, force):
     dependency_graph.to_json()
     provenance_graph.to_json()
 
+    click.secho("OK", fg="green")
+
 
 @graph.command()
 @click.argument("paths", type=click.Path(exists=True, dir_okay=False), nargs=-1)
 @pass_local_client(requires_migration=False)
-@click.pass_context
-def status(ctx, client, paths):
+def status(client, paths):
     r"""Equivalent of `renku status`."""
     with measure("BUILD AND QUERY GRAPH"):
         pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
-        usages = pg.get_latest_usages_path_and_checksum()
+        plans_usages = pg.get_latest_plans_usages()
 
-    print(usages)
+    # print(plans_usages)
 
     with measure("CALCULATE MODIFIED"):
-        modified, deleted = _get_modified_paths(client=client, path_and_checksum=usages)
+        modified, deleted = _get_modified_paths(client=client, plans_usages=plans_usages)
 
     if not modified and not deleted:
-        print("OK")
+        click.secho("OK", fg="green")
 
     stales = defaultdict(set)
 
     with measure("CALCULATE UPDATES"):
         dg = DependencyGraph.from_json(client.dependency_graph_path)
-        for path in modified:
-            paths = dg.get_dependent_paths(path)
+        for plan_id, path, _ in modified:
+            paths = dg.get_dependent_paths(plan_id, path)
             for p in paths:
                 stales[p].add(path)
 
     print(f"Updates: {len(stales)}", "".join(sorted([f"\n\t{k}: {', '.join(sorted(v))}" for k, v in stales.items()])))
     print()
-    print(f"Modified: {len(modified)}", "".join(sorted([f"\n\t{e}" for e in modified])))
+    modified = {v[1] for v in modified}
+    print(f"Modified: {len(modified)}", "".join(sorted([f"\n\t{v}" for v in modified])))
     print()
-    print(f"Deleted: {len(deleted)}", "".join(sorted([f"\n\t{e}" for e in deleted])))
+    deleted = {v[1] for v in deleted}
+    print(f"Deleted: {len(deleted)}", "".join(sorted([f"\n\t{v}" for v in deleted])))
 
 
-def _get_modified_paths(client, path_and_checksum):
+def _get_modified_paths(client, plans_usages):
     modified = set()
     deleted = set()
-    for path, checksum in path_and_checksum:
+    for plan_usage in plans_usages:
+        _, path, checksum = plan_usage
         try:
             current_checksum = client.repo.git.rev_parse(f"HEAD:{str(path)}")
         except GitCommandError:
-            deleted.add(path)
+            deleted.add(plan_usage)
         else:
             if current_checksum != checksum:
-                modified.add(path)
+                modified.add(plan_usage)
 
     return modified, deleted
-

@@ -165,14 +165,14 @@ class ProvenanceGraph:
         with open(f"{path}.json", "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
-    def get_latest_usages_path_and_checksum(self):
+    def get_latest_plans_usages(self):
         """Return a list of tuples with path and check of all Usage paths."""
         plan_orders = self.query(LATEST_PLAN_EXECUTION_ORDER)
         usages = self.query(ALL_USAGES)
 
-        latest_usages = (u for u in usages for o in plan_orders if u[0] == o[0])
+        latest_usages = (u for u in usages for o in plan_orders if u[1] == o[1])
 
-        return [(str(u[2]), str(u[3])) for u in latest_usages]
+        return [(str(u[0]), str(u[-2]), str(u[-1])) for u in latest_usages]
 
     def query(self, query):
         """Run a SPARQL query and return the result."""
@@ -194,7 +194,7 @@ class ProvenanceGraphSchema(JsonLDSchema):
 
 
 LATEST_PLAN_EXECUTION_ORDER = """
-    SELECT (MAX(?order) AS ?maxOrder)
+    SELECT ?plan (MAX(?order) AS ?maxOrder)
     WHERE
     {
         ?activity a prov:Activity .
@@ -206,7 +206,7 @@ LATEST_PLAN_EXECUTION_ORDER = """
 
 
 ALL_USAGES = """
-    SELECT ?order ?usage ?path ?checksum
+    SELECT ?plan ?order ?usage ?path ?checksum
     WHERE
     {
         ?activity a prov:Activity .

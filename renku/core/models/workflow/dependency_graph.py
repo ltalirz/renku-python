@@ -29,7 +29,6 @@ from renku.core.models.workflow.plan import Plan, PlanSchema
 
 
 class Node:
-
     def __init__(self, plan: Plan):
         """Initialized."""
         self.plan = plan
@@ -98,7 +97,7 @@ class DependencyGraph:
         return False
 
     def visualize_graph(self):
-        networkx.draw(self._graph, with_labels=True, labels={n:n.name for n in self._graph.nodes})
+        networkx.draw(self._graph, with_labels=True, labels={n: n.name for n in self._graph.nodes})
 
         # pos = networkx.spring_layout(self._graph)
         # # Add edges with path attribute: add_edge(node, other_node, path='data/covid')
@@ -114,11 +113,11 @@ class DependencyGraph:
         child = Path(child).resolve()
         return parent == child or parent in child.parents
 
-    def get_dependent_paths(self, path):
+    def get_dependent_paths(self, plan_id, path):
         nodes = deque()
         node: Plan
         for node in self._graph:
-            if any(self._is_super_path(path, p.consumes) for p in node.inputs):
+            if plan_id == node.id_ and any(self._is_super_path(path, p.consumes) for p in node.inputs):
                 nodes.append(node)
 
         paths = set()
