@@ -35,11 +35,10 @@ from renku.core.compat import Path
 from renku.core.management.config import RENKU_HOME
 from renku.core.models.locals import with_reference
 from renku.core.models.projects import Project
-from renku.core.models.provenance.activity import Activity, ActivityCollection
+from renku.core.models.provenance.activity import ActivityCollection
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.refs import LinkReference
 from renku.core.models.workflow.dependency_graph import DependencyGraph
-from renku.core.models.workflow.plan import Plan
 
 from .git import GitCore
 
@@ -462,7 +461,7 @@ class RepositoryApiMixin(GitCore):
         self.update_graphs(process_run)
 
     def update_graphs(self, activity_run):
-        """Update Dependency and Provenance graphs from a ProcessRun/WorkflowRun"""
+        """Update Dependency and Provenance graphs from a ProcessRun/WorkflowRun."""
         dependency_graph = DependencyGraph.from_json(self.dependency_graph_path)
         provenance_graph = ProvenanceGraph.from_json(self.provenance_graph_path)
 

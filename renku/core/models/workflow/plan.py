@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Represent run templates."""
-
+import copy
 import pathlib
 import urllib.parse
 import uuid
@@ -54,6 +54,7 @@ class Plan:
         self.success_codes = success_codes or []
 
     def __repr__(self):
+        """String representation."""
         return self.name
 
     @classmethod
@@ -94,11 +95,26 @@ class Plan:
         host = get_host(client)
         return urllib.parse.urljoin(f"https://{host}", pathlib.posixpath.join("plans", uuid_))
 
+    def assign_new_id(self):
+        """Assign a new UUID.
+
+        This is required only when there is another plan which is exactly the same except the arguments list.
+        """
+        path_start = self.id_.find("/plans/")
+        old_uuid = self.id_[path_start + len("/plans/") :]
+        new_uuid = str(uuid.uuid4())
+        self.id_ = self.id_.replace(old_uuid, new_uuid)
+        self.arguments = copy.deepcopy(self.arguments)
+        for a in self.arguments:
+            a._id = a._id.replace(old_uuid, new_uuid)
+
     def to_jsonld(self):
         """Create JSON-LD."""
         return PlanSchema(flattened=True).dump(self)
 
     def is_similar_to(self, other):
+        """Return true if plan has the same inputs/outputs/arguments as another plan."""
+
         def get_input_patterns(plan):
             return {e.consumes for e in plan.inputs}
 

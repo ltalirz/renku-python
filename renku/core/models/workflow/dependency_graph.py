@@ -28,14 +28,6 @@ from renku.core.models.calamus import JsonLDSchema, Nested, schema
 from renku.core.models.workflow.plan import Plan, PlanSchema
 
 
-class Node:
-    def __init__(self, plan: Plan):
-        """Initialized."""
-        self.plan = plan
-        self.parents = set()
-        self.children = set()
-
-
 class DependencyGraph:
     """A graph of all execution templates (Plans)."""
 
@@ -57,6 +49,11 @@ class DependencyGraph:
             return existing_plan
 
         assert not any([p for p in self._plans if p.name == plan.name]), f"Duplicate name {plan.id_}, {plan.name}"
+        # FIXME its possible to have the same identifier but different list of arguments (e.g.
+        # test_rerun_with_edited_inputs)
+        same_id_found = [p for p in self._plans if p.id_ == plan.id_]
+        if same_id_found:
+            plan.assign_new_id()
         assert not any([p for p in self._plans if p.id_ == plan.id_]), f"Identifier exists {plan.id_}"
         self._add_helper(plan)
 
@@ -97,6 +94,7 @@ class DependencyGraph:
         return False
 
     def visualize_graph(self):
+        """Visualize graph using matplotlib."""
         networkx.draw(self._graph, with_labels=True, labels={n: n.name for n in self._graph.nodes})
 
         # pos = networkx.spring_layout(self._graph)
@@ -105,6 +103,7 @@ class DependencyGraph:
         # networkx.draw_networkx_edge_labels(self._graph, pos=pos, edge_labels=edge_labels)
 
     def to_png(self, path):
+        """Create a PNG image from graph."""
         networkx.drawing.nx_pydot.to_pydot(self._graph).write_png(path)
 
     @staticmethod
@@ -114,6 +113,7 @@ class DependencyGraph:
         return parent == child or parent in child.parents
 
     def get_dependent_paths(self, plan_id, path):
+        """Get a list of downstream paths."""
         nodes = deque()
         node: Plan
         for node in self._graph:

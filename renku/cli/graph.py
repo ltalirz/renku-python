@@ -21,7 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import click
-from git import GitCommandError, NULL_TREE
+from git import NULL_TREE, GitCommandError
 
 from renku.core.commands.client import pass_local_client
 from renku.core.management.config import RENKU_HOME
@@ -41,7 +41,7 @@ GRAPH_METADATA_PATHS = [
 
 @click.group()
 def graph():
-    """PoC command for testing the new graph design."""
+    """Proof-of-Concept command for testing the new graph design."""
 
 
 @graph.command()

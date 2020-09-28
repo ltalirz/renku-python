@@ -91,6 +91,7 @@ class Isolation(contextlib.ExitStack):
 
 @contextlib.contextmanager
 def measure(message="TOTAL"):
+    """Measure execution time of enclosing code block."""
     import time
 
     start = time.time()

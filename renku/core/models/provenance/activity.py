@@ -21,14 +21,15 @@ import pathlib
 import uuid
 from collections import deque
 from typing import List, Union
-from urllib.parse import urljoin, quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 from git import GitCommandError
 from marshmallow import EXCLUDE
 
 from renku.core.models.calamus import JsonLDSchema, Nested, fields, prov, renku, schema
-from renku.core.models.entities import Entity, EntitySchema, Collection
-from renku.core.models.provenance.activities import Activity as ActivityRun, ProcessRun, WorkflowRun
+from renku.core.models.entities import Collection, Entity, EntitySchema
+from renku.core.models.provenance.activities import Activity as ActivityRun
+from renku.core.models.provenance.activities import ProcessRun, WorkflowRun
 from renku.core.models.provenance.agents import PersonSchema, SoftwareAgentSchema
 from renku.core.models.provenance.qualified import (
     Association,
@@ -129,7 +130,7 @@ class Activity:
 
 
 def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) -> List[Usage]:
-    """Convert a CommandInput to CommandInputTemplate."""
+    """Convert a qualified Usages."""
     # TODO: sort qualified_usage based on position
     usages = []
     collections = deque()
@@ -137,7 +138,7 @@ def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) 
     for usage in qualified_usage:
         commit_sha = _extract_commit_sha(entity_id=usage.entity._id)
         entity = _convert_usage_entity(usage.entity, commit_sha, activity_id, client)
-        assert entity, f"Top entity was not found for Usage: {usage._id}"
+        assert entity, f"Top entity was not found for Usage: {usage._id}, {usage.entity.path}"
 
         usage_id = urljoin(
             activity_id, pathlib.posixpath.join("usage", usage.role, entity.checksum, quote(entity.path))
@@ -172,7 +173,7 @@ def _convert_qualified_usage(qualified_usage: List[Usage], activity_id, client) 
 
 
 def _convert_generated(generated: List[Generation], activity_id, client) -> List[Generation]:
-    """Convert a CommandInput to CommandInputTemplate."""
+    """Convert Generations."""
     # TODO: sort generated based on position
     generations = []
     collections = deque()
@@ -186,8 +187,16 @@ def _convert_generated(generated: List[Generation], activity_id, client) -> List
         generation_id = urljoin(
             activity_id, pathlib.posixpath.join("generation", generation.role, entity.checksum, quoted_path)
         )
-        duplicates_found = any([g for g in generations if g._id == generation_id])
-        assert not duplicates_found
+
+        # FIXME: It's possible to get duplicate generations in test_output_directory_with_output_option
+        # duplicates_found = any([g for g in generations if g._id == generation_id])
+        # assert not duplicates_found
+        duplicates = [g for g in generations if g._id == generation_id]
+        for d in duplicates:
+            assert d.role == generation.role
+            assert d.path == generation.path
+            if isinstance(generation, Collection):
+                assert len(d.members) == len(generation.members)
 
         new_generation = Generation(id=generation_id, entity=entity, role=generation.role)
         generations.append(new_generation)
@@ -383,6 +392,7 @@ class ActivityCollection:
         return max([a.order for a in self._activities]) if self._activities else -1
 
     def add(self, activity):
+        """Add an Activity."""
         self._activities.append(activity)
 
     @classmethod

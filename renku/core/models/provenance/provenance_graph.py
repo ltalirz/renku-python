@@ -24,7 +24,7 @@ from marshmallow import EXCLUDE
 from rdflib import ConjunctiveGraph
 
 from renku.core.models.calamus import JsonLDSchema, Nested, schema
-from renku.core.models.provenance.activity import Activity, ActivitySchema, ActivityCollection
+from renku.core.models.provenance.activity import Activity, ActivityCollection, ActivitySchema
 
 
 class ProvenanceGraph:
@@ -157,6 +157,7 @@ class ProvenanceGraph:
     def convert_activity_to_json(path, client=None, commit=None):
         """Read an Activity from YAML and write it as JSON."""
         import json
+
         from renku.core.models.provenance.activities import Activity as ActivityRun
 
         activity = ActivityRun.from_yaml(path=path, client=client, commit=commit)
