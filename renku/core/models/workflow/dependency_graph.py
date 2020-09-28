@@ -19,7 +19,7 @@
 import json
 from collections import deque
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 
 import networkx
 from marshmallow import EXCLUDE
@@ -131,6 +131,23 @@ class DependencyGraph:
             nodes.extend(self._graph.successors(node))
 
         return paths
+
+    def get_downstream(self, modified_usages) -> List[Plan]:
+        """Return a list of Plans in topological order that should be updated."""
+        nodes = set()
+        node: Plan
+        for plan_id, path, _ in modified_usages:
+            for node in self._graph:
+                if plan_id == node.id_ and any(self._is_super_path(path, p.consumes) for p in node.inputs):
+                    nodes.add(node)
+                    nodes.update(networkx.algorithms.dag.descendants(self._graph, node))
+
+        sorted_nodes = []
+        for node in networkx.algorithms.dag.topological_sort(self._graph):
+            if node in nodes:
+                sorted_nodes.append(node)
+
+        return sorted_nodes
 
     @classmethod
     def from_json(cls, path):

@@ -23,6 +23,7 @@ from pathlib import Path
 import click
 from git import NULL_TREE, GitCommandError
 
+from renku.cli.update import run_workflow
 from renku.core.commands.client import pass_local_client
 from renku.core.management.config import RENKU_HOME
 from renku.core.management.repository import RepositoryApiMixin
@@ -30,6 +31,7 @@ from renku.core.models.provenance.activities import Activity as ActivityRun
 from renku.core.models.provenance.activity import ActivityCollection
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.workflow.dependency_graph import DependencyGraph
+from renku.core.models.workflow.run import Run
 from renku.core.utils.contexts import measure
 
 GRAPH_METADATA_PATHS = [
@@ -138,6 +140,40 @@ def status(client):
     print()
     deleted = {v[1] for v in deleted}
     print(f"Deleted: {len(deleted)}", "".join(sorted([f"\n\t{v}" for v in deleted])))
+
+
+@graph.command()
+@click.option("-n", "--dry-run", is_flag=True, help="Show steps that will be updated without running them.")
+@pass_local_client(clean=True, requires_migration=True, commit=True)
+def update(client, dry_run):
+    r"""Equivalent of `renku update`."""
+    with measure("BUILD AND QUERY GRAPH"):
+        pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
+        plans_usages = pg.get_latest_plans_usages()
+
+    # print(plans_usages)
+
+    with measure("CALCULATE MODIFIED"):
+        modified, deleted = _get_modified_paths(client=client, plans_usages=plans_usages)
+
+    if not modified and not deleted:
+        click.secho("Everything is up-to-date.", fg="green")
+        return
+
+    with measure("CALCULATE UPDATES"):
+        dg = DependencyGraph.from_json(client.dependency_graph_path)
+        plans = dg.get_downstream(modified)
+
+    if dry_run:
+        print("The following steps will be executed:", "".join((f"\n\t{p}" for p in plans)))
+        return
+
+    runs = [p.to_run(client) for p in plans]
+    parent_process = Run(client=client)
+    for run in runs:
+        parent_process.add_subprocess(run)
+
+    run_workflow(client=client, workflow=parent_process, output_paths=None)
 
 
 def _get_modified_paths(client, plans_usages):

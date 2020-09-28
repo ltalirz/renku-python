@@ -26,6 +26,7 @@ from marshmallow import EXCLUDE
 from werkzeug.utils import secure_filename
 
 from renku.core.models.calamus import JsonLDSchema, Nested, fields, prov, renku, schema
+from renku.core.models.entities import Entity
 from renku.core.models.workflow.parameters import (
     CommandArgumentSchema,
     CommandInput,
@@ -108,6 +109,10 @@ class Plan:
         for a in self.arguments:
             a._id = a._id.replace(old_uuid, new_uuid)
 
+    def _extract_uuid(self):
+        path_start = self.id_.find("/plans/")
+        return self.id_[path_start + len("/plans/") :]
+
     def to_jsonld(self):
         """Create JSON-LD."""
         return PlanSchema(flattened=True).dump(self)
@@ -131,6 +136,45 @@ class Plan:
             and get_input_patterns(self) == get_input_patterns(other)
             and get_output_patterns(self) == get_output_patterns(self)
             and get_arguments(self) == get_arguments(other)
+        )
+
+    def to_run(self, client):
+        """Create a Run."""
+
+        def convert_input(input_: CommandInputTemplate) -> CommandInput:
+            return CommandInput(
+                id=input_._id.replace(self.id_, run_id),
+                consumes=Entity.from_revision(client=client, path=input_.consumes, revision="HEAD"),
+                mapped_to=input_.mapped_to,
+                position=input_.position,
+                prefix=input_.prefix,
+            )
+
+        def convert_output(output: CommandOutputTemplate) -> CommandOutput:
+            return CommandOutput(
+                id=output._id.replace(self.id_, run_id),
+                produces=Entity.from_revision(client=client, path=output.produces, revision="HEAD"),
+                mapped_to=output.mapped_to,
+                position=output.position,
+                prefix=output.prefix,
+                create_folder=output.create_folder,
+            )
+
+        uuid_ = self._extract_uuid()
+        host = get_host(client)
+        # TODO: This won't work if plan_id was randomly generated; for PoC it's OK.
+        run_id = urllib.parse.urljoin(f"https://{host}", pathlib.posixpath.join("runs", uuid_))
+
+        inputs = [convert_input(i) for i in self.inputs]
+        outputs = [convert_output(o) for o in self.outputs]
+
+        return Run(
+            arguments=self.arguments,
+            command=self.command,
+            id=run_id,
+            inputs=inputs,
+            outputs=outputs,
+            successcodes=self.success_codes,
         )
 
 
