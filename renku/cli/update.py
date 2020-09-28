@@ -193,3 +193,5 @@ def update(client, revision, no_output, siblings, paths):
         run = cls.from_run(run=workflow, client=client, path=path, update_commits=True)
         run.to_yaml()
         client.add_to_activity_index(run)
+
+    client.update_graphs(run)

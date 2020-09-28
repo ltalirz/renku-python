@@ -35,7 +35,7 @@ from renku.core.compat import Path
 from renku.core.management.config import RENKU_HOME
 from renku.core.models.locals import with_reference
 from renku.core.models.projects import Project
-from renku.core.models.provenance.activity import Activity
+from renku.core.models.provenance.activity import Activity, ActivityCollection
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph
 from renku.core.models.refs import LinkReference
 from renku.core.models.workflow.dependency_graph import DependencyGraph
@@ -459,16 +459,18 @@ class RepositoryApiMixin(GitCore):
             process_run.to_yaml()
             self.add_to_activity_index(process_run)
 
-        # Add Plan to dependency graph
-        plan = Plan.from_run(run=process_run.association.plan, name=name, client=client)
-        dependency_graph = DependencyGraph.from_json(self.dependency_graph_path)
-        plan = dependency_graph.add(plan)
-        dependency_graph.to_json()
+        self.update_graphs(process_run)
 
-        # Store Activity
-        activity = Activity.from_process_run(process_run=process_run, plan=plan, client=client)
+    def update_graphs(self, activity_run):
+        """Update Dependency and Provenance graphs from a ProcessRun/WorkflowRun"""
+        dependency_graph = DependencyGraph.from_json(self.dependency_graph_path)
         provenance_graph = ProvenanceGraph.from_json(self.provenance_graph_path)
-        provenance_graph.add(activity)
+
+        activity_collection = ActivityCollection.from_activity_run(activity_run, dependency_graph, self)
+
+        provenance_graph.add(activity_collection)
+
+        dependency_graph.to_json()
         provenance_graph.to_json()
 
     def init_repository(self, force=False, user=None):

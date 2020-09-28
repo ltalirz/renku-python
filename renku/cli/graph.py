@@ -105,9 +105,9 @@ def generate(client, force):
 
 
 @graph.command()
-@click.argument("paths", type=click.Path(exists=True, dir_okay=False), nargs=-1)
+# @click.argument("paths", type=click.Path(exists=True, dir_okay=False), nargs=-1)
 @pass_local_client(requires_migration=False)
-def status(client, paths):
+def status(client):
     r"""Equivalent of `renku status`."""
     with measure("BUILD AND QUERY GRAPH"):
         pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
@@ -119,7 +119,8 @@ def status(client, paths):
         modified, deleted = _get_modified_paths(client=client, plans_usages=plans_usages)
 
     if not modified and not deleted:
-        click.secho("OK", fg="green")
+        click.secho("Everything is up-to-date.", fg="green")
+        return
 
     stales = defaultdict(set)
 

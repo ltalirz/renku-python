@@ -161,3 +161,5 @@ def rerun(client, revision, roots, siblings, inputs, paths):
         run = cls.from_run(workflow, client, path)
         run.to_yaml()
         client.add_to_activity_index(run)
+
+    client.update_graphs(run)
