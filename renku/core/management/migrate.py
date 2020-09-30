@@ -58,12 +58,12 @@ def is_project_unsupported(client):
     return _is_renku_project(client) and _get_project_version(client) > SUPPORTED_PROJECT_VERSION
 
 
-def migrate(client, progress_callback=None):
+def migrate(client, progress_callback=None, metadata_path=None, from_version=None, update_project=True):
     """Apply all migration files to the project."""
     if not _is_renku_project(client):
         return
 
-    project_version = _get_project_version(client)
+    project_version = from_version or _get_project_version(client)
     n_migrations_executed = 0
 
     for version, path in get_migrations():
@@ -72,9 +72,9 @@ def migrate(client, progress_callback=None):
             if progress_callback:
                 module_name = module.__name__.split(".")[-1]
                 progress_callback(f"Applying migration {module_name}...")
-            module.migrate(client)
+            module.migrate(client, metadata_path=metadata_path)
             n_migrations_executed += 1
-    if n_migrations_executed > 0:
+    if n_migrations_executed > 0 and update_project:
         client.project.version = str(version)
         client.project.to_yaml()
 

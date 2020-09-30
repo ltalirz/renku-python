@@ -19,6 +19,7 @@
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Dict
 
 import click
 from git import NULL_TREE, GitCommandError
@@ -27,6 +28,7 @@ from renku.cli.update import run_workflow
 from renku.core.commands.client import pass_local_client
 from renku.core.management.config import RENKU_HOME
 from renku.core.management.repository import RepositoryApiMixin
+from renku.core.models.entities import Entity
 from renku.core.models.provenance.activities import Activity as ActivityRun
 from renku.core.models.provenance.activity import ActivityCollection
 from renku.core.models.provenance.provenance_graph import ProvenanceGraph
@@ -144,7 +146,7 @@ def status(client):
 
 @graph.command()
 @click.option("-n", "--dry-run", is_flag=True, help="Show steps that will be updated without running them.")
-@pass_local_client(clean=True, requires_migration=True, commit=True)
+@pass_local_client(clean=True, requires_migration=True, commit=True, commit_empty=False)
 def update(client, dry_run):
     r"""Equivalent of `renku update`."""
     with measure("BUILD AND QUERY GRAPH"):
@@ -156,24 +158,52 @@ def update(client, dry_run):
     with measure("CALCULATE MODIFIED"):
         modified, deleted = _get_modified_paths(client=client, plans_usages=plans_usages)
 
-    if not modified and not deleted:
+    if not modified:
         click.secho("Everything is up-to-date.", fg="green")
         return
 
     with measure("CALCULATE UPDATES"):
         dg = DependencyGraph.from_json(client.dependency_graph_path)
-        plans = dg.get_downstream(modified)
+        plans, plans_with_deleted_inputs = dg.get_downstream(modified, deleted)
+
+    if plans_with_deleted_inputs:
+        print(
+            "The following steps cannot be executed because one of their inputs is deleted:",
+            "".join((f"\n\t{p}" for p in plans_with_deleted_inputs)),
+        )
 
     if dry_run:
         print("The following steps will be executed:", "".join((f"\n\t{p}" for p in plans)))
         return
 
-    runs = [p.to_run(client) for p in plans]
-    parent_process = Run(client=client)
-    for run in runs:
-        parent_process.add_subprocess(run)
+    with measure("CONVERTING RUNS"):
+        entities_cache: Dict[str, Entity] = {}
+        runs = [p.to_run(client, entities_cache) for p in plans]
+        parent_process = Run(client=client)
+        for run in runs:
+            parent_process.add_subprocess(run)
 
     run_workflow(client=client, workflow=parent_process, output_paths=None)
+
+
+@graph.command()
+@click.argument("path", type=click.Path(exists=False, dir_okay=False))
+@pass_local_client
+def save(client, path):
+    r"""Save dependency graph as PNG."""
+    with measure("CREATE DEPENDENCY GRAPH"):
+        dg = DependencyGraph.from_json(client.dependency_graph_path)
+        dg.to_png(path=path)
+
+
+@graph.command()
+@pass_local_client(requires_migration=False)
+def log(client):
+    r"""Equivalent of `renku log --format json-ld`."""
+    with measure("BUILD AND QUERY GRAPH"):
+        pg = ProvenanceGraph.from_json(client.provenance_graph_path, lazy=True)
+        data = pg.rdf_graph.serialize(format="json-ld").decode("utf-8")
+        print(data)
 
 
 def _get_modified_paths(client, plans_usages):
@@ -190,3 +220,26 @@ def _get_modified_paths(client, plans_usages):
                 modified.add(plan_usage)
 
     return modified, deleted
+
+
+def _include_dataset_metadata(dependency_graph, client):
+    """Add dataset metadata to the provenance graph."""
+    for commit in client.iter_commits(path=[".renku/datasets/*"]):
+        for file_ in commit.diff(commit.parents or NULL_TREE):
+            # Ignore deleted files (they appear as ADDED in this backwards diff)
+            if file_.change_type == "A":
+                continue
+
+            path: str = file_.a_path
+
+            if not path.startswith(".renku/datasets") or not path.endswith(".yaml"):
+                continue
+
+            dataset_file = _migrate_dataset(client=client, metadata_path=client.path / path)
+
+            dependency_graph._graph.parse(location=str(dataset_file), format="json-ld")
+
+
+def _migrate_dataset(client, metadata_path: Path):
+    uuid = metadata_path.parent
+    return client.path / ".renku" / "tmp" / uuid

@@ -108,7 +108,8 @@ class ProvenanceGraph:
         with open(path, "w", encoding="utf-8") as file_:
             json.dump(data, file_, ensure_ascii=False, sort_keys=True, indent=2)
 
-    def to_rdf_graph(self):
+    @property
+    def rdf_graph(self):
         """Create an RDFLib ConjunctiveGraph."""
         self._create_rdf_graph()
         return self._graph
@@ -127,7 +128,6 @@ class ProvenanceGraph:
 
         self._graph.bind("prov", "http://www.w3.org/ns/prov#")
         self._graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
-        self._graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
         self._graph.bind("wf", "http://www.w3.org/2005/01/wf/flow#")
         self._graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
         self._graph.bind("schema", "http://schema.org/")
@@ -140,7 +140,6 @@ class ProvenanceGraph:
 
         graph.bind("prov", "http://www.w3.org/ns/prov#")
         graph.bind("foaf", "http://xmlns.com/foaf/0.1/")
-        graph.bind("wfdesc", "http://purl.org/wf4ever/wfdesc#")
         graph.bind("wf", "http://www.w3.org/2005/01/wf/flow#")
         graph.bind("wfprov", "http://purl.org/wf4ever/wfprov#")
         graph.bind("schema", "http://schema.org/")

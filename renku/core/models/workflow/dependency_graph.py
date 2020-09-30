@@ -19,7 +19,7 @@
 import json
 from collections import deque
 from pathlib import Path
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import networkx
 from marshmallow import EXCLUDE
@@ -40,7 +40,7 @@ class DependencyGraph:
 
         self._graph = networkx.DiGraph()
         self._graph.add_nodes_from(self._plans)
-        self._connect_nodes()
+        self._connect_all_nodes()
 
     def add(self, plan: Plan) -> Plan:
         """Add a plan to the graph if a similar plan does not exists."""
@@ -73,34 +73,28 @@ class DependencyGraph:
         self._graph.add_node(plan)
         self._connect_node_to_others(node=plan)
 
-    def _connect_nodes(self):
+    def _connect_all_nodes(self):
         for node in self._graph:
             self._connect_node_to_others(node)
 
     def _connect_node_to_others(self, node: Plan):
         for other_node in self._graph:
-            if self._is_connected(from_=node, to_=other_node):
-                self._graph.add_edge(node, other_node, name=node.name)
-            if self._is_connected(from_=other_node, to_=node):
-                self._graph.add_edge(other_node, node, name=node.name)
+            self._connect_two_nodes(from_=node, to_=other_node)
+            self._connect_two_nodes(from_=other_node, to_=node)
 
-    @staticmethod
-    def _is_connected(from_: Plan, to_: Plan):
+    def _connect_two_nodes(self, from_: Plan, to_: Plan):
         for o in from_.outputs:
             for i in to_.inputs:
                 if DependencyGraph._is_super_path(o.produces, i.consumes):
-                    return True
-
-        return False
+                    self._graph.add_edge(from_, to_, name=o.produces)
 
     def visualize_graph(self):
         """Visualize graph using matplotlib."""
         networkx.draw(self._graph, with_labels=True, labels={n: n.name for n in self._graph.nodes})
 
-        # pos = networkx.spring_layout(self._graph)
-        # # Add edges with path attribute: add_edge(node, other_node, path='data/covid')
-        # edge_labels = networkx.get_edge_attributes(self._graph, 'path')
-        # networkx.draw_networkx_edge_labels(self._graph, pos=pos, edge_labels=edge_labels)
+        pos = networkx.spring_layout(self._graph)
+        edge_labels = networkx.get_edge_attributes(self._graph, "name")
+        networkx.draw_networkx_edge_labels(self._graph, pos=pos, edge_labels=edge_labels)
 
     def to_png(self, path):
         """Create a PNG image from graph."""
@@ -132,9 +126,17 @@ class DependencyGraph:
 
         return paths
 
-    def get_downstream(self, modified_usages) -> List[Plan]:
+    def get_downstream(self, modified_usages, deleted_usages) -> Tuple[List[Plan], List[Plan]]:
         """Return a list of Plans in topological order that should be updated."""
+
+        def node_has_deleted_inputs(node_):
+            for _, path_, _ in deleted_usages:
+                if any(self._is_super_path(path_, p.consumes) for p in node_.inputs):
+                    return True
+            return False
+
         nodes = set()
+        nodes_with_deleted_inputs = set()
         node: Plan
         for plan_id, path, _ in modified_usages:
             for node in self._graph:
@@ -145,9 +147,12 @@ class DependencyGraph:
         sorted_nodes = []
         for node in networkx.algorithms.dag.topological_sort(self._graph):
             if node in nodes:
-                sorted_nodes.append(node)
+                if node_has_deleted_inputs(node):
+                    nodes_with_deleted_inputs.add(node)
+                else:
+                    sorted_nodes.append(node)
 
-        return sorted_nodes
+        return sorted_nodes, list(nodes_with_deleted_inputs)
 
     @classmethod
     def from_json(cls, path):

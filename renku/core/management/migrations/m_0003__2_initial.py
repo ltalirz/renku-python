@@ -31,15 +31,15 @@ from renku.core.utils.migrate import get_pre_0_3_4_datasets_metadata
 from renku.core.utils.urls import url_to_string
 
 
-def migrate(client):
+def migrate(client, metadata_path):
     """Migration function."""
     _ensure_clean_lock(client)
     _do_not_track_lock_file(client)
     _migrate_datasets_pre_v0_3(client)
-    _migrate_broken_dataset_paths(client)
-    _fix_labels_and_ids(client)
-    _fix_dataset_urls(client)
-    _migrate_dataset_and_files_project(client)
+    _migrate_broken_dataset_paths(client, metadata_path)
+    _fix_labels_and_ids(client, metadata_path)
+    _fix_dataset_urls(client, metadata_path)
+    _migrate_dataset_and_files_project(client, metadata_path)
 
 
 def _ensure_clean_lock(client):
@@ -90,9 +90,9 @@ def _migrate_datasets_pre_v0_3(client):
         ref.set_reference(new_path)
 
 
-def _migrate_broken_dataset_paths(client):
+def _migrate_broken_dataset_paths(client, metadata_path):
     """Ensure all paths are using correct directory structure."""
-    for dataset in get_client_datasets(client):
+    for dataset in get_client_datasets(client, metadata_path=metadata_path):
         expected_path = client.renku_datasets_path / dataset.identifier
         if not dataset.name:
             dataset.name = dataset.title
@@ -122,9 +122,9 @@ def _migrate_broken_dataset_paths(client):
         dataset.to_yaml(expected_path / client.METADATA)
 
 
-def _fix_labels_and_ids(client):
+def _fix_labels_and_ids(client, metadata_path):
     """Ensure files have correct label instantiation."""
-    for dataset in get_client_datasets(client):
+    for dataset in get_client_datasets(client, metadata_path=metadata_path):
         dataset._id = generate_dataset_id(client=client, identifier=dataset.identifier)
         dataset._label = dataset.identifier
 
@@ -144,9 +144,9 @@ def _fix_labels_and_ids(client):
         dataset.to_yaml()
 
 
-def _fix_dataset_urls(client):
+def _fix_dataset_urls(client, metadata_path):
     """Ensure dataset and its files have correct url format."""
-    for dataset in get_client_datasets(client):
+    for dataset in get_client_datasets(client, metadata_path=metadata_path):
         dataset.url = dataset._id
         for file_ in dataset.files:
             if file_.url:
@@ -155,12 +155,12 @@ def _fix_dataset_urls(client):
         dataset.to_yaml()
 
 
-def _migrate_dataset_and_files_project(client):
+def _migrate_dataset_and_files_project(client, metadata_path):
     """Ensure dataset files have correct project."""
     project = Project.from_yaml(client.renku_metadata_path, client)
     project.to_yaml(client.renku_metadata_path)
 
-    for dataset in get_client_datasets(client):
+    for dataset in get_client_datasets(client, metadata_path=metadata_path):
         dataset._project = project
         if not dataset.creators:
             dataset.creators = [project.creator]

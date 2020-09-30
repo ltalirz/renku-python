@@ -138,22 +138,32 @@ class Plan:
             and get_arguments(self) == get_arguments(other)
         )
 
-    def to_run(self, client):
+    def to_run(self, client, entities_cache):
         """Create a Run."""
 
         def convert_input(input_: CommandInputTemplate) -> CommandInput:
+            entity = entities_cache.get(input_.consumes)
+            if not entity:
+                entity = Entity.from_revision(client=client, path=input_.consumes, revision="HEAD")
+                entities_cache[input_.consumes] = entity
+
             return CommandInput(
                 id=input_._id.replace(self.id_, run_id),
-                consumes=Entity.from_revision(client=client, path=input_.consumes, revision="HEAD"),
+                consumes=entity,
                 mapped_to=input_.mapped_to,
                 position=input_.position,
                 prefix=input_.prefix,
             )
 
         def convert_output(output: CommandOutputTemplate) -> CommandOutput:
+            entity = entities_cache.get(output.produces)
+            if not entity:
+                entity = Entity.from_revision(client=client, path=output.produces, revision="HEAD")
+                entities_cache[output.produces] = entity
+
             return CommandOutput(
                 id=output._id.replace(self.id_, run_id),
-                produces=Entity.from_revision(client=client, path=output.produces, revision="HEAD"),
+                produces=entity,
                 mapped_to=output.mapped_to,
                 position=output.position,
                 prefix=output.prefix,
