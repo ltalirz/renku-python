@@ -260,6 +260,8 @@ class DatasetFile(Entity):
 
     source = attr.ib(default=None, kw_only=True)
 
+    is_lfs = attr.ib(default=False, kw_only=True)
+
     @added.default
     def _now(self):
         """Define default value for datetime fields."""
@@ -551,11 +553,22 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
             self.path = str(self.client.renku_datasets_path / self.uid)
 
         if self.files and self.client is not None:
+            paths = [f.path for f in self.files]
+            attrs = self.client.find_attr(*paths)
+
             for dataset_file in self.files:
                 path = Path(dataset_file.path)
                 file_exists = path.exists() or (path.is_symlink() and os.path.lexists(path))
 
-                if dataset_file.client is None and file_exists:
+                if not file_exists:
+                    continue
+
+                if attrs.get(str(path), {}).get("filter") == "lfs":
+                    dataset_file.is_lfs = True
+                else:
+                    dataset_file.is_lfs = False
+
+                if dataset_file.client is None:
                     client, _, _ = self.client.resolve_in_submodules(
                         self.client.find_previous_commit(dataset_file.path, revision="HEAD"), dataset_file.path,
                     )
