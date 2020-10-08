@@ -31,6 +31,7 @@ from renku.cli import cli
 from renku.core import errors
 from renku.core.commands.clone import project_clone
 from renku.core.management.repository import DEFAULT_DATA_DIR as DATA_DIR
+from renku.core.models.provenance.agents import Person
 from renku.core.utils.contexts import chdir
 from tests.utils import assert_dataset_is_mutated
 
@@ -1356,4 +1357,5 @@ def test_immutability_after_import(runner, client):
     assert 0 == runner.invoke(cli, ["dataset", "edit", "my-dataset", "-k", "new-data"]).exit_code
 
     dataset = client.load_dataset("my-dataset")
-    assert_dataset_is_mutated(old=old_dataset, new=dataset)
+    mutator = Person.from_git(client.repo)
+    assert_dataset_is_mutated(old=old_dataset, new=dataset, mutator=mutator)

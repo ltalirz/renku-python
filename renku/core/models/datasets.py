@@ -569,6 +569,11 @@ class Dataset(Entity, CreatorMixin, ReferenceMixin):
         self.same_as = None
         self.derived_from = Url(url_id=self._id)
 
+        if self.client:
+            mutator = Person.from_git(self.client.repo)
+            if not any(c for c in self.creators if c.email == mutator.email):
+                self.creators.append(mutator)
+
         self.date_created = self._now()
         self.date_published = None
 

@@ -200,11 +200,12 @@ def test_unlink_default(directory_tree, client):
         file_unlink("dataset", (), ())
 
 
-def test_mutate():
+def test_mutate(client):
     """Test metadata change after dataset mutation."""
     dataset = Dataset(
+        client=client,
         name="my-dataset",
-        creators=[],
+        creators=[Person.from_string("John Doe <john.doe@mail.com>")],
         date_published=datetime.datetime.now(datetime.timezone.utc),
         same_as="http://some-url",
     )
@@ -212,7 +213,27 @@ def test_mutate():
 
     dataset.mutate()
 
-    assert_dataset_is_mutated(old=old_dataset, new=dataset)
+    mutator = Person.from_git(client.repo)
+    assert_dataset_is_mutated(old=old_dataset, new=dataset, mutator=mutator)
+
+
+def test_mutator_is_added_once(client):
+    """Test mutator of a dataset is added only once to its creators list."""
+    mutator = Person.from_git(client.repo)
+
+    dataset = Dataset(
+        client=client,
+        name="my-dataset",
+        creators=[mutator],
+        date_published=datetime.datetime.now(datetime.timezone.utc),
+        same_as="http://some-url",
+    )
+    old_dataset = copy.deepcopy(dataset)
+
+    dataset.mutate()
+
+    assert_dataset_is_mutated(old=old_dataset, new=dataset, mutator=mutator)
+    assert 1 == len(dataset.creators)
 
 
 def test_mutate_is_done_once():

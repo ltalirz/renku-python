@@ -57,7 +57,7 @@ def make_dataset_add_payload(project_id, urls, name=None):
     }
 
 
-def assert_dataset_is_mutated(old, new):
+def assert_dataset_is_mutated(old, new, mutator=None):
     """Check metadata is updated correctly after dataset mutation."""
     assert old._id != new._id
     assert old.identifier != new.identifier
@@ -69,3 +69,8 @@ def assert_dataset_is_mutated(old, new):
     assert new.identifier in new._id
     assert new.identifier in new._label
     assert new.identifier in new.url
+
+    if mutator:
+        old_creators = {c.email for c in old.creators}
+        new_creators = {c.email for c in new.creators}
+        assert new_creators == old_creators | {mutator.email}
