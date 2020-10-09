@@ -286,3 +286,15 @@ def test_comprehensive_dataset_migration(isolated_runner, old_dataset_project):
     assert "README.md" == file_.source
     assert file_.based_on is None
     assert file_.url.endswith("/projects/mohammad.alisafaee/old-datasets-v0.9.1/files/blob/README.md")
+
+
+@pytest.mark.migration
+def test_no_blank_node_after_dataset_migration(isolated_runner, old_dataset_project):
+    """Test migration of datasets with blank nodes creates IRI identifiers."""
+    assert 0 == isolated_runner.invoke(cli, ["migrate"]).exit_code
+
+    dataset = LocalClient(path=old_dataset_project.working_dir).load_dataset("201901_us_flights_1")
+
+    assert not dataset.creators[0]._id.startswith("_:")
+    assert not dataset.same_as._id.startswith("_:")
+    assert not dataset.tags[0]._id.startswith("_:")
