@@ -256,6 +256,8 @@ def test_comprehensive_dataset_migration(isolated_runner, old_dataset_project):
     assert isinstance(dataset.license, dict)
     assert "https://creativecommons.org/publicdomain/zero/1.0/" in str(dataset.license)
 
+    # FIXME: license is a blank node -> Do all blank nodes cause issue for TG
+
     file_ = dataset.find_file("data/dataverse/copy.sh")
     assert "https://dataverse.harvard.edu/api/access/datafile/3050656" == file_.source
     assert file_.url.endswith("/projects/mohammad.alisafaee/old-datasets-v0.9.1/files/blob/data/dataverse/copy.sh")
